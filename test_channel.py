@@ -3,10 +3,15 @@
 import threading
 import time
 import unittest
-from channel import chan
+import transducers as xf
+from channel import chan, ontoChan
 
 
 class TestBufferedChannel(unittest.TestCase):
+    def test_unsuccessful_nonpositive_buffer(self):
+        with self.assertRaises(ValueError):
+            chan(0)
+
     def test_unsuccessful_blocking_put_none(self):
         with self.assertRaises(TypeError):
             chan(1).put(None)
@@ -111,6 +116,48 @@ class TestBufferedChannel(unittest.TestCase):
 
         threading.Thread(target=thread).start()
         self.assertIs(ch.put('failure'), False)
+
+    def test_iter(self):
+        ch = chan(2)
+        ontoChan(ch, ['one', 'two'])
+        self.assertEqual(list(ch), ['one', 'two'])
+
+    def test_xform_map(self):
+        ch = chan(1, xf.map(lambda x: x + 1))
+        ontoChan(ch, [0, 1, 2])
+        self.assertEqual(list(ch), [1, 2, 3])
+
+    def test_xform_filter(self):
+        ch = chan(1, xf.filter(lambda x: x % 2 == 0))
+        ontoChan(ch, [0, 1, 2])
+        self.assertEqual(list(ch), [0, 2])
+
+    def test_xform_early_termination(self):
+        ch = chan(1, xf.take(2))
+        ontoChan(ch, [1, 2, 3, 4])
+        self.assertEqual(list(ch), [1, 2])
+
+    def test_xform_successful_overfilled_buffer(self):
+        ch = chan(1, xf.cat)
+        ch.put([1, 2, 3])
+        ch.close()
+        self.assertEqual(list(ch), [1, 2, 3])
+
+    def test_xform_unsuccessful_nonblocking_put_overfilled_buffer(self):
+        ch = chan(1, xf.cat)
+        ch.put([1, 2])
+        self.assertIs(ch.put([1], block=False), False)
+
+    def test_unsuccessful_transformation_to_none(self):
+        ch = chan(1, xf.map(lambda _: None))
+        with self.assertRaises(AssertionError):
+            ch.put('failure')
+
+    def test_close_flushes_xform_buffer(self):
+        ch = chan(3, xf.partitionAll(2))
+        ontoChan(ch, range(3))
+        ch.close()
+        self.assertEqual(list(ch), [(0, 1), (2,)])
 
 
 class TestUnBufferedChannel(unittest.TestCase):
@@ -217,6 +264,11 @@ class TestUnBufferedChannel(unittest.TestCase):
 
         threading.Thread(target=thread).start()
         self.assertIs(ch.put('failure'), False)
+
+    def test_iter(self):
+        ch = chan()
+        ontoChan(ch, ['one', 'two'])
+        self.assertEqual(list(ch), ['one', 'two'])
 
 
 if __name__ == '__main__':
