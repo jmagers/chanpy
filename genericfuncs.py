@@ -1,10 +1,54 @@
-from functools import reduce
+import functools
 from toolz import pipe, concat
 from math import inf
 
 
+def multiArity(*funcs):
+    def dispatch(*args):
+        try:
+            func = funcs[len(args)]
+            if func is None:
+                raise IndexError
+        except IndexError:
+            raise ValueError('wrong number of arguments supplied')
+        return func(*args)
+    return dispatch
+
+
+class Reduced:
+    def __init__(self, value):
+        self.value = value
+
+
+def isReduced(value):
+    return isinstance(value, Reduced)
+
+
+def ensureReduced(x):
+    return x if isReduced(x) else Reduced(x)
+
+
+def unreduced(x):
+    return x.value if isReduced(x) else x
+
+
+def _reduce(rf, init, coll):
+    result = init
+    for x in coll:
+        if isReduced(result):
+            return result.value
+        result = rf(result, x)
+    return result
+
+
+reduce = multiArity(None,
+                    None,
+                    lambda rf, coll: _reduce(rf, rf(), coll),
+                    _reduce)
+
+
 def multiply(*vals):
-    return reduce(lambda x, y: x * y, vals)
+    return functools.reduce(lambda x, y: x * y, vals)
 
 
 def repeat(value, n=inf):
