@@ -1,13 +1,15 @@
 import threading
 from collections import deque
+from genericfuncs import multiArity, isReduced
+from toolz import identity
 
 
-class Empty(Exception):
-    """Empty"""
-
-
-class Full(Exception):
-    """Full"""
+def _iter(ch):
+    while True:
+        value = ch.get()
+        if value is None:
+            break
+        yield value
 
 
 class FixedBuffer:
@@ -18,13 +20,9 @@ class FixedBuffer:
         self._q = deque()
 
     def get(self):
-        if self.isEmpty():
-            raise Empty
         return self._q.popleft()
 
     def put(self, item):
-        if self.isFull():
-            raise Full
         self._q.append(item)
 
     def isEmpty(self):
@@ -35,12 +33,18 @@ class FixedBuffer:
 
 
 class BufferedChannel:
-    def __init__(self, buffer):
+    def __init__(self, buffer, xform=identity):
         self._lock = threading.Lock()
         self._notEmpty = threading.Condition(self._lock)
         self._notFull = threading.Condition(self._lock)
         self._buffer = buffer
         self._isClosed = False
+
+        def step(_, val):
+            assert val is not None
+            self._buffer.put(val)
+
+        self._rf = xform(multiArity(lambda: None, lambda _: None, step))
 
     def get(self, block=True):
         with self._notEmpty:
@@ -50,7 +54,8 @@ class BufferedChannel:
                                      not self._buffer.isEmpty()))
             if not self._buffer.isEmpty():
                 item = self._buffer.get()
-                self._notFull.notify()
+                if not self._buffer.isFull():
+                    self._notFull.notify()
                 return item
             return None
 
@@ -64,15 +69,25 @@ class BufferedChannel:
                                     not self._buffer.isFull()))
             if self._isClosed:
                 return False
-            self._buffer.put(item)
-            self._notEmpty.notify()
+            if isReduced(self._rf(None, item)):
+                self._close()
+            elif not self._buffer.isEmpty():
+                self._notEmpty.notify()
             return True
 
     def close(self):
         with self._lock:
+            self._close()
+
+    def _close(self):
+        if not self._isClosed:
+            self._rf(None)
             self._isClosed = True
             self._notEmpty.notify_all()
             self._notFull.notify_all()
+
+    def __iter__(self):
+        return _iter(self)
 
 
 class UnbufferedChannel:
@@ -105,8 +120,35 @@ class UnbufferedChannel:
         self._itemCh.close()
         self._completeCh.close()
 
+    def __iter__(self):
+        return _iter(self)
 
-def chan(buf=0):
-    if buf == 0:
+
+def chan(buf=None, xform=identity):
+    if buf is None:
         return UnbufferedChannel()
-    return BufferedChannel(FixedBuffer(buf) if isinstance(buf, int) else buf)
+    newBuf = FixedBuffer(buf) if isinstance(buf, int) else buf
+    return BufferedChannel(newBuf, xform)
+
+
+def reduce(f, init, ch):
+    result = init
+    while True:
+        value = ch.get()
+        if value is None:
+            return result
+        result = f(result, value)
+
+
+def ontoChan(ch, coll, close=True):
+    newCh = chan()
+
+    def thread():
+        for x in coll:
+            ch.put(x)
+        newCh.close()
+        if close:
+            ch.close()
+
+    threading.Thread(target=thread).start()
+    return newCh
