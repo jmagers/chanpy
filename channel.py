@@ -154,6 +154,35 @@ def ontoChan(ch, coll, close=True):
     return newCh
 
 
+def pipe(fromCh, toCh, close=True):
+    completeCh = chan()
+
+    def thread():
+        while True:
+            val = fromCh.get()
+            if val is None:
+                completeCh.close()
+                if close:
+                    toCh.close()
+                return
+            toCh.put(val)
+
+    threading.Thread(target=thread).start()
+    return completeCh
+
+
+def merge(chs, buf=None):
+    toCh = chan(buf)
+
+    def thread():
+        for doneCh in [pipe(fromCh, toCh, close=False) for fromCh in chs]:
+            doneCh.get()
+        toCh.close()
+
+    threading.Thread(target=thread).start()
+    return toCh
+
+
 class Mult:
     def __init__(self, ch):
         self._srcCh = ch

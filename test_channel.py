@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 import transducers as xf
-from channel import chan, ontoChan, mult
+from channel import chan, ontoChan, mult, pipe, merge
 
 
 class TestBufferedChannel(unittest.TestCase):
@@ -313,6 +313,39 @@ class TestMult(unittest.TestCase):
         m.tap(dest)
         src.close()
         self.assertIsNone(dest.get())
+
+
+class TestPipe(unittest.TestCase):
+    def test_pipe_copy(self):
+        src, dest = chan(), chan()
+        pipe(src, dest)
+        ontoChan(src, [1, 2, 3])
+        self.assertEqual(list(dest), [1, 2, 3])
+
+    def test_pipe_close_dest(self):
+        src, dest = chan(), chan()
+        pipe(src, dest)
+        src.close()
+        self.assertIsNone(dest.get())
+
+    def test_pipe_no_close_dest(self):
+        src, dest = chan(), chan(1)
+        pipe(src, dest, close=False)
+        src.close()
+        time.sleep(0.1)
+        dest.put('success')
+        self.assertEqual(dest.get(), 'success')
+
+
+class TestMerge(unittest.TestCase):
+    def test_merge(self):
+        src1, src2 = chan(), chan()
+        m = merge([src1, src2], 2)
+        src1.put('src1')
+        src2.put('src2')
+        src1.close()
+        src2.close()
+        self.assertEqual(list(m), ['src1', 'src2'])
 
 
 if __name__ == '__main__':
