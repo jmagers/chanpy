@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 import transducers as xf
-from channel import chan, ontoChan
+from channel import chan, ontoChan, mult
 
 
 class TestBufferedChannel(unittest.TestCase):
@@ -269,6 +269,50 @@ class TestUnBufferedChannel(unittest.TestCase):
         ch = chan()
         ontoChan(ch, ['one', 'two'])
         self.assertEqual(list(ch), ['one', 'two'])
+
+
+class TestMult(unittest.TestCase):
+    def test_tap(self):
+        src, dest = chan(), chan()
+        m = mult(src)
+        m.tap(dest)
+        src.put('success')
+        self.assertEqual(dest.get(), 'success')
+        src.close()
+
+    def test_untap(self):
+        src, dest1, dest2 = chan(), chan(), chan()
+        m = mult(src)
+        m.tap(dest1)
+        m.tap(dest2)
+        src.put('item1')
+        dest1.get()
+        dest2.get()
+        m.untap(dest2)
+        src.put('item2')
+        dest1.get()
+        time.sleep(0.1)
+        self.assertIsNone(dest2.get(block=False))
+        src.close()
+
+    def test_mult_blocks_until_all_taps_accept(self):
+        src, dest1, dest2 = chan(), chan(), chan()
+        m = mult(src)
+        m.tap(dest1)
+        m.tap(dest2)
+        src.put('item')
+        dest1.get()
+        time.sleep(0.1)
+        self.assertIs(src.put('failure', block=False), False)
+        dest2.get()
+        src.close()
+
+    def test_taps_close(self):
+        src, dest = chan(), chan()
+        m = mult(src)
+        m.tap(dest)
+        src.close()
+        self.assertIsNone(dest.get())
 
 
 if __name__ == '__main__':
