@@ -152,3 +152,45 @@ def ontoChan(ch, coll, close=True):
 
     threading.Thread(target=thread).start()
     return newCh
+
+
+class Mult:
+    def __init__(self, ch):
+        self._srcCh = ch
+        self._consumers = {}
+        self._lock = threading.Lock()
+        threading.Thread(target=self._proc).start()
+
+    def tap(self, ch, close=True):
+        with self._lock:
+            self._consumers[id(ch)] = ch
+
+    def untap(self, ch):
+        with self._lock:
+            del self._consumers[id(ch)]
+
+    def _copy_consumers(self):
+        with self._lock:
+            return dict(self._consumers)
+
+    def _proc(self):
+        while True:
+            # Get next item to distribute. Close consumers when srcCh closes.
+            item = self._srcCh.get()
+            if item is None:
+                for consumer in self._copy_consumers().values():
+                    consumer.close()
+                break
+
+            # Distribute item to consumers
+            threads = []
+            for consumer in self._copy_consumers().values():
+                threads.append(threading.Thread(target=consumer.put,
+                                                args=[item]))
+                threads[-1].start()
+            for thread in threads:
+                thread.join()
+
+
+def mult(ch):
+    return Mult(ch)
