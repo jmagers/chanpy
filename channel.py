@@ -102,6 +102,7 @@ class UnbufferedChannel:
         with self._consumerLock:
             self._isConsumerWaiting = block
             item = self._itemCh.get(block=block)
+            self._isConsumerWaiting = False
             if item is None or not self._completeCh.put('consumer finished'):
                 return None
             return item
@@ -113,7 +114,6 @@ class UnbufferedChannel:
             if not block and not self._isConsumerWaiting:
                 return False
             self._itemCh.put(item)
-            self._isConsumerWaiting = False
             return self._completeCh.get() is not None
 
     def close(self):
