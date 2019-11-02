@@ -270,6 +270,10 @@ class TestUnBufferedChannel(unittest.TestCase):
         ontoChan(ch, ['one', 'two'])
         self.assertEqual(list(ch), ['one', 'two'])
 
+    def test_xform_exception(self):
+        with self.assertRaises(ValueError):
+            chan(None, xf.cat)
+
 
 class TestMult(unittest.TestCase):
     def test_tap(self):
