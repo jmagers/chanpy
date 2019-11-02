@@ -17,19 +17,38 @@ class FixedBuffer:
         if not isinstance(maxsize, int) or maxsize <= 0:
             raise ValueError('maxsize must be a positive int')
         self._maxsize = maxsize
-        self._q = deque()
+        self._deque = deque()
 
     def get(self):
-        return self._q.popleft()
+        return self._deque.popleft()
 
     def put(self, item):
-        self._q.append(item)
+        self._deque.append(item)
 
     def isEmpty(self):
-        return len(self._q) == 0
+        return len(self._deque) == 0
 
     def isFull(self):
-        return len(self._q) >= self._maxsize
+        return len(self._deque) >= self._maxsize
+
+
+class DroppingBuffer(FixedBuffer):
+    def put(self, item):
+        if len(self._deque) < self._maxsize:
+            self._deque.append(item)
+
+    def isFull(self):
+        return False
+
+
+class SlidingBuffer(FixedBuffer):
+    def put(self, item):
+        self._deque.append(item)
+        if len(self._deque) > self._maxsize:
+            self._deque.popleft()
+
+    def isFull(self):
+        return False
 
 
 class BufferedChannel:

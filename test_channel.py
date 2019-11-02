@@ -4,6 +4,7 @@ import threading
 import time
 import unittest
 import transducers as xf
+import channel as c
 from channel import chan, ontoChan, mult, pipe, merge
 
 
@@ -160,7 +161,7 @@ class TestBufferedChannel(unittest.TestCase):
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
 
-class TestUnBufferedChannel(unittest.TestCase):
+class TestUnbufferedChannel(unittest.TestCase):
     def test_unsuccessful_blocking_put_none(self):
         with self.assertRaises(TypeError):
             chan().put(None)
@@ -273,6 +274,50 @@ class TestUnBufferedChannel(unittest.TestCase):
     def test_xform_exception(self):
         with self.assertRaises(ValueError):
             chan(None, xf.cat)
+
+
+class TestDroppingBuffer(unittest.TestCase):
+    def test_put_does_not_block(self):
+        ch = chan(c.DroppingBuffer(1))
+        ch.put('keep')
+        ch.put('drop')
+        self.assertIs(ch.put('drop'), True)
+
+    def test_buffer_keeps_oldest_n_elements(self):
+        ch = chan(c.DroppingBuffer(2))
+        ch.put('keep1')
+        ch.put('keep2')
+        ch.put('drop')
+        ch.close()
+        self.assertEqual(list(ch), ['keep1', 'keep2'])
+
+    def test_buffer_does_not_overfill_with_xform(self):
+        ch = chan(c.DroppingBuffer(2), xf.cat)
+        ch.put([1, 2, 3, 4])
+        ch.close()
+        self.assertEqual(list(ch), [1, 2])
+
+
+class TestSlidingBuffer(unittest.TestCase):
+    def test_put_does_not_block(self):
+        ch = chan(c.SlidingBuffer(1))
+        ch.put('drop')
+        ch.put('drop')
+        self.assertIs(ch.put('keep'), True)
+
+    def test_buffer_keeps_newest_n_elements(self):
+        ch = chan(c.SlidingBuffer(2))
+        ch.put('drop')
+        ch.put('keep1')
+        ch.put('keep2')
+        ch.close()
+        self.assertEqual(list(ch), ['keep1', 'keep2'])
+
+    def test_buffer_does_not_overfill_with_xform(self):
+        ch = chan(c.SlidingBuffer(2), xf.cat)
+        ch.put([1, 2, 3, 4])
+        ch.close()
+        self.assertEqual(list(ch), [3, 4])
 
 
 class TestMult(unittest.TestCase):
