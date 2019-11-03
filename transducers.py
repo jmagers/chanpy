@@ -1,4 +1,5 @@
-from genericfuncs import multiArity, reduce, ensureReduced, unreduced, isReduced
+from genericfuncs import (multiArity, reduce, ensureReduced, unreduced,
+                          isReduced)
 from toolz import identity, partial as prt, compose as comp
 from collections import deque
 
@@ -86,3 +87,32 @@ def partitionAll(n):
 
         return multiArity(rf, complete, step)
     return xform
+
+
+def _reductions(f, init):
+    class _INITIAL:
+        pass
+
+    def xform(rf):
+        prevState = _INITIAL
+
+        def step(result, val):
+            nonlocal prevState
+
+            if prevState is _INITIAL:
+                prevState = init
+                result = rf(result, init)
+                if isReduced(result):
+                    return result
+
+            prevState = f(prevState, val)
+            newResult = rf(result, unreduced(prevState))
+            return (ensureReduced(newResult)
+                    if isReduced(prevState)
+                    else newResult)
+
+        return multiArity(rf, rf, step)
+    return xform
+
+
+reductions = multiArity(None, lambda f: _reductions(f, f()), _reductions)
