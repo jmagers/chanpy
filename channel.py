@@ -213,11 +213,11 @@ class Mult:
 
     def tap(self, ch, close=True):
         with self._lock:
-            self._consumers[id(ch)] = ch
+            self._consumers[ch] = close
 
     def untap(self, ch):
         with self._lock:
-            del self._consumers[id(ch)]
+            del self._consumers[ch]
 
     def _copy_consumers(self):
         with self._lock:
@@ -228,13 +228,14 @@ class Mult:
             # Get next item to distribute. Close consumers when srcCh closes.
             item = self._srcCh.get()
             if item is None:
-                for consumer in self._copy_consumers().values():
-                    consumer.close()
+                for consumer, close in self._copy_consumers().items():
+                    if close:
+                        consumer.close()
                 break
 
             # Distribute item to consumers
             threads = []
-            for consumer in self._copy_consumers().values():
+            for consumer in self._copy_consumers():
                 threads.append(threading.Thread(target=consumer.put,
                                                 args=[item]))
                 threads[-1].start()

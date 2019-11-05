@@ -356,12 +356,15 @@ class TestMult(unittest.TestCase):
         dest2.get()
         src.close()
 
-    def test_taps_close(self):
-        src, dest = chan(), chan()
+    def test_only_correct_taps_close(self):
+        src, closeDest, noCloseDest = chan(), chan(1), chan(1)
         m = mult(src)
-        m.tap(dest)
+        m.tap(closeDest)
+        m.tap(noCloseDest, close=False)
         src.close()
-        self.assertIsNone(dest.get())
+        time.sleep(0.1)
+        self.assertIs(closeDest.put('closed'), False)
+        self.assertIs(noCloseDest.put('not closed'), True)
 
 
 class TestPipe(unittest.TestCase):
