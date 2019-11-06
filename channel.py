@@ -25,6 +25,9 @@ class FixedBuffer:
     def put(self, item):
         self._deque.append(item)
 
+    def size(self):
+        return len(self._deque)
+
     def isEmpty(self):
         return len(self._deque) == 0
 
@@ -88,10 +91,10 @@ class BufferedChannel:
                                     not self._buffer.isFull()))
             if self._isClosed:
                 return False
+            prevBufferSize = self._buffer.size()
             if isReduced(self._rf(None, item)):
                 self._close()
-            elif not self._buffer.isEmpty():
-                self._notEmpty.notify()
+            self._notEmpty.notify(self._buffer.size() - prevBufferSize)
             return True
 
     def close(self):
