@@ -217,7 +217,10 @@ class Mult:
 
     def untap(self, ch):
         with self._lock:
-            del self._consumers[ch]
+            try:
+                del self._consumers[ch]
+            except KeyError:
+                pass
 
     def _copy_consumers(self):
         with self._lock:

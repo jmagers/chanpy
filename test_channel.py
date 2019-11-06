@@ -344,6 +344,12 @@ class TestMult(unittest.TestCase):
         self.assertIsNone(dest2.get(block=False))
         src.close()
 
+    def test_untap_nonexistant_tap(self):
+        src = chan()
+        m = mult(src)
+        self.assertIsNone(m.untap(chan()))
+        src.close()
+
     def test_mult_blocks_until_all_taps_accept(self):
         src, dest1, dest2 = chan(), chan(), chan()
         m = mult(src)
