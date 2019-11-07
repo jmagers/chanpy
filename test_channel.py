@@ -272,7 +272,7 @@ class TestUnbufferedChannel(unittest.TestCase):
         self.assertEqual(list(ch), ['one', 'two'])
 
     def test_xform_exception(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             chan(None, xf.cat)
 
 

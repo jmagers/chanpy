@@ -167,7 +167,7 @@ class UnbufferedChannel:
 def chan(buf=None, xform=None):
     if buf is None:
         if xform is not None:
-            raise ValueError('unbuffered channels cannot have an xform')
+            raise TypeError('unbuffered channels cannot have an xform')
         return UnbufferedChannel()
     newBuf = FixedBuffer(buf) if isinstance(buf, int) else buf
     return BufferedChannel(newBuf, identity if xform is None else xform)
