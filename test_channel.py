@@ -161,17 +161,13 @@ class TestBufferedChannel(unittest.TestCase):
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
 
-class TestUnbufferedChannel(unittest.TestCase):
+class AbstractTestUnbufferedBlockingCalls:
     def test_unsuccessful_blocking_put_none(self):
         with self.assertRaises(TypeError):
-            chan().put(None)
-
-    def test_unsuccessful_nonblocking_put_none(self):
-        with self.assertRaises(TypeError):
-            chan().put(None, block=False)
+            self.chan().put(None)
 
     def test_blocking_get_first(self):
-        ch = chan()
+        ch = self.chan()
 
         def thread():
             time.sleep(0.1)
@@ -181,7 +177,7 @@ class TestUnbufferedChannel(unittest.TestCase):
         self.assertEqual(ch.get(), 'success')
 
     def test_blocking_put_first(self):
-        ch = chan()
+        ch = self.chan()
 
         def thread():
             time.sleep(0.1)
@@ -192,7 +188,7 @@ class TestUnbufferedChannel(unittest.TestCase):
 
     def test_put_blocks_until_get(self):
         status = 'failure'
-        ch = chan()
+        ch = self.chan()
 
         def thread():
             nonlocal status
@@ -203,6 +199,61 @@ class TestUnbufferedChannel(unittest.TestCase):
         threading.Thread(target=thread).start()
         ch.put(1)
         self.assertEqual(status, 'success')
+
+    def test_blocking_get_after_close(self):
+        ch = self.chan()
+        ch.close()
+        self.assertIsNone(ch.get())
+
+    def test_blocking_put_after_close(self):
+        ch = self.chan()
+        ch.close()
+        self.assertIs(ch.put('failure'), False)
+
+    def test_close_while_blocking_get(self):
+        ch = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            ch.close()
+
+        threading.Thread(target=thread).start()
+        self.assertIsNone(ch.get())
+
+    def test_close_while_blocking_put(self):
+        ch = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            ch.close()
+
+        threading.Thread(target=thread).start()
+        self.assertIs(ch.put('failure'), False)
+
+    def test_iter(self):
+        ch = self.chan()
+        ontoChan(ch, ['one', 'two'])
+        self.assertEqual(list(ch), ['one', 'two'])
+
+    def test_xform_exception(self):
+        with self.assertRaises(TypeError):
+            self.chan(None, xf.cat)
+
+
+class TestUnbufferedBlockingCalls(unittest.TestCase,
+                                  AbstractTestUnbufferedBlockingCalls):
+    chan = c.UnbufferedChannel
+
+
+class TestMaybeUnbufferedBlockingCalls(unittest.TestCase,
+                                       AbstractTestUnbufferedBlockingCalls):
+    chan = c.MaybeUnbufferedChannel
+
+
+class TestUnbufferedChannel(unittest.TestCase):
+    def test_unsuccessful_nonblocking_put_none(self):
+        with self.assertRaises(TypeError):
+            chan().put(None, block=False)
 
     def test_successful_nonblocking_get(self):
         ch = chan()
@@ -226,16 +277,6 @@ class TestUnbufferedChannel(unittest.TestCase):
     def test_unsuccessful_nonblocking_put(self):
         self.assertIs(chan().put('failure', block=False), False)
 
-    def test_blocking_get_after_close(self):
-        ch = chan()
-        ch.close()
-        self.assertIsNone(ch.get())
-
-    def test_blocking_put_after_close(self):
-        ch = chan()
-        ch.close()
-        self.assertIs(ch.put('failure'), False)
-
     def test_nonblocking_get_after_close(self):
         ch = chan()
         ch.close()
@@ -245,35 +286,6 @@ class TestUnbufferedChannel(unittest.TestCase):
         ch = chan()
         ch.close()
         self.assertIs(ch.put('failure', block=False), False)
-
-    def test_close_while_blocking_get(self):
-        ch = chan()
-
-        def thread():
-            time.sleep(0.1)
-            ch.close()
-
-        threading.Thread(target=thread).start()
-        self.assertIsNone(ch.get())
-
-    def test_close_while_blocking_put(self):
-        ch = chan()
-
-        def thread():
-            time.sleep(0.1)
-            ch.close()
-
-        threading.Thread(target=thread).start()
-        self.assertIs(ch.put('failure'), False)
-
-    def test_iter(self):
-        ch = chan()
-        ontoChan(ch, ['one', 'two'])
-        self.assertEqual(list(ch), ['one', 'two'])
-
-    def test_xform_exception(self):
-        with self.assertRaises(TypeError):
-            chan(None, xf.cat)
 
 
 class TestDroppingBuffer(unittest.TestCase):
