@@ -4,6 +4,24 @@ from genericfuncs import multiArity, isReduced
 from toolz import identity
 
 
+class Atom:
+    def __init__(self, value=None):
+        self._value = value
+        self._lock = threading.Lock()
+
+    def get(self):
+        with self._lock:
+            return self._value
+
+    def reset(self, value):
+        with self._lock:
+            self._value = value
+
+    def update(self, updater):
+        with self._lock:
+            self._value = updater(self._value)
+
+
 def _iter(ch):
     while True:
         value = ch.get()
@@ -118,13 +136,13 @@ class UnbufferedChannel:
         self._completeCh = BufferedChannel(FixedBuffer(1))
         self._consumerLock = threading.Lock()
         self._producerLock = threading.Lock()
-        self._isConsumerWaiting = False
+        self._isConsumerWaiting = Atom(False)
 
     def get(self, block=True):
         with self._consumerLock:
-            self._isConsumerWaiting = block
+            self._isConsumerWaiting.reset(block)
             item = self._itemCh.get(block=block)
-            self._isConsumerWaiting = False
+            self._isConsumerWaiting.reset(False)
             if item is None or not self._completeCh.put('consumer finished'):
                 return None
             return item
@@ -133,7 +151,7 @@ class UnbufferedChannel:
         if item is None:
             raise TypeError('item cannot be None')
         with self._producerLock:
-            if not block and not self._isConsumerWaiting:
+            if not block and not self._isConsumerWaiting.get():
                 return False
             self._itemCh.put(item)
             return self._completeCh.get() is not None
