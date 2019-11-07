@@ -288,6 +288,181 @@ class TestUnbufferedChannel(unittest.TestCase):
         self.assertIs(ch.put('failure', block=False), False)
 
 
+class AbstractTestUnbufferedAlts:
+    def _confirm_chans_not_closed(self, *chs):
+        for ch in chs:
+            ontoChan(ch, ['notClosed'], close=False)
+            self.assertEqual(ch.get(), 'notClosed')
+
+    def test_single_successful_get_on_initial_request(self):
+        ch = self.chan()
+        ontoChan(ch, ['success', 'notClosed'])
+        time.sleep(0.1)
+        self.assertEqual(c.alts([ch]), ('success', ch))
+        self.assertEqual(ch.get(), 'notClosed')
+
+    def test_single_successful_get_on_wait(self):
+        ch = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            ontoChan(ch, ['success', 'notClosed'])
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(c.alts([ch]), ('success', ch))
+        self.assertEqual(ch.get(), 'notClosed')
+
+    def test_single_successful_put_on_initial_request(self):
+        ch = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            ch.put(c.alts([[ch, 'success']]))
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(ch.get(), 'success')
+        self.assertEqual(ch.get(), (True, ch))
+
+    def test_single_successful_put_on_wait(self):
+        ch = self.chan()
+
+        def thread():
+            ch.put(c.alts([[ch, 'success']]))
+
+        threading.Thread(target=thread).start()
+        time.sleep(0.1)
+        self.assertEqual(ch.get(), 'success')
+        self.assertEqual(ch.get(), (True, ch))
+
+    def test_multiple_successful_get_on_initial_request(self):
+        successGetCh = self.chan()
+        cancelGetCh = self.chan()
+        cancelPutCh = self.chan()
+        ontoChan(successGetCh, ['success'], close=False)
+        time.sleep(0.1)
+        self.assertEqual(c.alts([cancelGetCh,
+                                 successGetCh,
+                                 [cancelPutCh, 'noSend']]),
+                         ('success', successGetCh))
+        self._confirm_chans_not_closed(successGetCh, cancelGetCh, cancelPutCh)
+
+    def test_multiple_successful_get_on_wait(self):
+        successGetCh = self.chan()
+        cancelGetCh = self.chan()
+        cancelPutCh = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            successGetCh.put('success')
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(c.alts([cancelGetCh,
+                                 successGetCh,
+                                 [cancelPutCh, 'noSend']]),
+                         ('success', successGetCh))
+        self._confirm_chans_not_closed(successGetCh, cancelGetCh, cancelPutCh)
+
+    def test_multiple_successful_put_on_intial_request(self):
+        successPutCh = self.chan()
+        cancelGetCh = self.chan()
+        cancelPutCh = self.chan()
+
+        def thread():
+            successPutCh.put(c.alts([cancelGetCh,
+                                     [successPutCh, 'success'],
+                                     [cancelPutCh, 'noSend']]))
+
+        threading.Thread(target=thread).start()
+        time.sleep(0.1)
+        self.assertEqual(successPutCh.get(), 'success')
+        self.assertEqual(successPutCh.get(), (True, successPutCh))
+        self._confirm_chans_not_closed(cancelGetCh, successPutCh, cancelPutCh)
+
+    def test_multiple_successful_put_on_wait(self):
+        successPutCh = self.chan()
+        cancelGetCh = self.chan()
+        cancelPutCh = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            successPutCh.put(c.alts([cancelGetCh,
+                                     [successPutCh, 'success'],
+                                     [cancelPutCh, 'noSend']]))
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(successPutCh.get(), 'success')
+        self.assertEqual(successPutCh.get(), (True, successPutCh))
+        self._confirm_chans_not_closed(cancelGetCh, successPutCh, cancelPutCh)
+
+    def test_close_before_get(self):
+        closedGetCh = self.chan()
+        cancelPutCh = self.chan()
+        cancelGetCh = self.chan()
+        closedGetCh.close()
+        self.assertEqual(c.alts([[cancelPutCh, 'noSend'],
+                                 closedGetCh,
+                                 cancelGetCh]),
+                         (None, closedGetCh))
+        self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
+
+    def test_close_before_put(self):
+        closedPutCh = self.chan()
+        cancelPutCh = self.chan()
+        cancelGetCh = self.chan()
+        closedPutCh.close()
+        self.assertEqual(c.alts([cancelGetCh,
+                                 [closedPutCh, 'noSend'],
+                                 [cancelPutCh, 'noSend']]),
+                         (False, closedPutCh))
+        self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
+
+    def test_close_while_waiting_get(self):
+        closeGetCh = self.chan()
+        cancelGetCh = self.chan()
+        cancelPutCh = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            closeGetCh.close()
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(c.alts([cancelGetCh,
+                                 closeGetCh,
+                                 [cancelPutCh, 'noSend']]),
+                         (None, closeGetCh))
+        self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
+
+    def test_close_while_waiting_put(self):
+        closePutCh = self.chan()
+        cancelGetCh = self.chan()
+        cancelPutCh = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            closePutCh.close()
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(c.alts([cancelGetCh,
+                                 [closePutCh, 'noSend'],
+                                 [cancelPutCh, 'noSend']]),
+                         (False, closePutCh))
+        self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
+
+    def test_double_alts_successful_transfer(self):
+        ch = self.chan()
+
+        def thread():
+            ch.put(c.alts([[ch, 'success']]))
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(c.alts([ch]), ('success', ch))
+        self.assertEqual(ch.get(), (True, ch))
+
+
+class TestAltsMaybeUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
+    chan = c.MaybeUnbufferedChannel
+
+
 class TestDroppingBuffer(unittest.TestCase):
     def test_put_does_not_block(self):
         ch = chan(c.DroppingBuffer(1))
