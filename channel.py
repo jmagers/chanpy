@@ -164,6 +164,98 @@ class UnbufferedChannel:
         return _iter(self)
 
 
+class PENDING:
+    pass
+
+
+class MaybeUnbufferedChannel:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._putWaiters = deque()
+        self._getWaiters = deque()
+        self._isClosed = False
+
+    def maybeGet(self, ch):
+        return self._maybe(requestType='get', ch=ch, sendValue=True)
+
+    def maybePut(self, ch, item):
+        return self._maybe(requestType='put', ch=ch, sendValue=item)
+
+    def get(self):
+        return self._commit(self.maybeGet)
+
+    def put(self, item):
+        return self._commit(lambda ch: self.maybePut(ch, item))
+
+    def close(self):
+        with self._lock:
+            if not self._isClosed:
+                for getWaiter in self._getWaiters:
+                    getWaiter['ch'].put({'ch': self, 'value': None})
+                for putWaiter in self._putWaiters:
+                    putWaiter['ch'].put({'ch': self, 'value': False})
+                self._getWaiters.clear()
+                self._putWaiters.clear()
+                self._isClosed = True
+
+    def _maybe(self, requestType, ch, sendValue):
+        with self._lock:
+            if requestType == 'get':
+                waiters = self._getWaiters
+                oppositeWaiters = self._putWaiters
+                closedValue = None
+            elif requestType == 'put':
+                if sendValue is None:
+                    raise TypeError('item cannot be None')
+                waiters = self._putWaiters
+                oppositeWaiters = self._getWaiters
+                closedValue = False
+
+            if self._isClosed:
+                return {'ch': self, 'value': closedValue}
+
+            # Return immediately if an opposite waiter is available
+            while len(oppositeWaiters) > 0:
+                opWaiter = oppositeWaiters.popleft()
+                if opWaiter['ch'].put({'ch': self, 'value': sendValue}):
+                    return {'ch': self, 'value': opWaiter['value']}
+
+            waiters.append({'ch': ch, 'value': sendValue})
+            return PENDING
+
+    def _commit(self, maybe):
+        ch = UnbufferedChannel()
+        response = maybe(ch)
+
+        if response is PENDING:
+            response = ch.get()
+
+        ch.close()
+        return response['value']
+
+    def __iter__(self):
+        return _iter(self)
+
+
+def alts(ports):
+    inputCh = UnbufferedChannel()
+
+    for p in ports:
+        if type(p) in [list, tuple]:
+            ch, val = p
+            response = ch.maybePut(inputCh, val)
+        else:
+            response = p.maybeGet(inputCh)
+
+        if response is not PENDING:
+            inputCh.close()
+            return (response['value'], response['ch'])
+
+    response = inputCh.get()
+    inputCh.close()
+    return (response['value'], response['ch'])
+
+
 def chan(buf=None, xform=None):
     if buf is None:
         if xform is not None:
