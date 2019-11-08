@@ -8,26 +8,90 @@ import channel as c
 from channel import chan, ontoChan, mult, pipe, merge
 
 
+class AbstractTestBufferedBlockingCalls:
+    def test_unsuccessful_blocking_put_none(self):
+        with self.assertRaises(TypeError):
+            self.chan(1).put(None)
+
+    def test_successful_blocking_get(self):
+        ch = self.chan(1)
+        threading.Thread(target=ch.put, args=['success']).start()
+        self.assertEqual(ch.get(), 'success')
+
+    def test_successful_blocking_put(self):
+        self.assertIs(self.chan(1).put('success'), True)
+
+    def test_blocking_get_closed_empty_buffer(self):
+        ch = self.chan(1)
+        ch.close()
+        self.assertIsNone(ch.get())
+
+    def test_blocking_get_closed_full_buffer(self):
+        ch = self.chan(1)
+        ch.put('success')
+        ch.close()
+        self.assertEqual(ch.get(), 'success')
+
+    def test_blocking_put_closed_empty_buffer(self):
+        ch = self.chan(1)
+        ch.close()
+        self.assertIs(ch.put('failure'), False)
+
+    def test_blocking_put_closed_full_buffer(self):
+        ch = self.chan(1)
+        ch.put('fill buffer')
+        ch.close()
+        self.assertIs(ch.put('failure'), False)
+
+    def test_close_while_blocking_get(self):
+        ch = self.chan(1)
+
+        def thread():
+            time.sleep(0.1)
+            ch.close()
+
+        threading.Thread(target=thread).start()
+        self.assertIsNone(ch.get())
+
+    def test_close_while_blocking_put(self):
+        ch = self.chan(1)
+        ch.put('fill buffer')
+
+        def thread():
+            time.sleep(0.1)
+            ch.close()
+
+        threading.Thread(target=thread).start()
+        self.assertIs(ch.put('failure'), False)
+
+    def test_iter(self):
+        ch = self.chan(2)
+        ontoChan(ch, ['one', 'two'])
+        self.assertEqual(list(ch), ['one', 'two'])
+
+
+class TestBlockingBufferedChannel(unittest.TestCase,
+                                  AbstractTestBufferedBlockingCalls):
+    @staticmethod
+    def chan(n):
+        return c.BufferedChannel(c.FixedBuffer(n))
+
+
+class TestBlockingMaybeBufferedChannel(unittest.TestCase,
+                                       AbstractTestBufferedBlockingCalls):
+    @staticmethod
+    def chan(n):
+        return c.MaybeBufferedChannel(c.FixedBuffer(n))
+
+
 class TestBufferedChannel(unittest.TestCase):
     def test_unsuccessful_nonpositive_buffer(self):
         with self.assertRaises(ValueError):
             chan(0)
 
-    def test_unsuccessful_blocking_put_none(self):
-        with self.assertRaises(TypeError):
-            chan(1).put(None)
-
     def test_unsuccessful_nonblocking_put_none(self):
         with self.assertRaises(TypeError):
             chan(1).put(None, block=False)
-
-    def test_successful_blocking_get(self):
-        ch = chan(1)
-        threading.Thread(target=ch.put, args=['success']).start()
-        self.assertEqual(ch.get(), 'success')
-
-    def test_successful_blocking_put(self):
-        self.assertIs(chan(1).put('success'), True)
 
     def test_successful_nonblocking_get(self):
         ch = chan(1)
@@ -53,28 +117,6 @@ class TestBufferedChannel(unittest.TestCase):
         ch.put('fill buffer')
         self.assertIs(ch.put('failure', block=False), False)
 
-    def test_blocking_get_closed_empty_buffer(self):
-        ch = chan(1)
-        ch.close()
-        self.assertIsNone(ch.get())
-
-    def test_blocking_get_closed_full_buffer(self):
-        ch = chan(1)
-        ch.put('success')
-        ch.close()
-        self.assertEqual(ch.get(), 'success')
-
-    def test_blocking_put_closed_empty_buffer(self):
-        ch = chan(1)
-        ch.close()
-        self.assertIs(ch.put('failure'), False)
-
-    def test_blocking_put_closed_full_buffer(self):
-        ch = chan(1)
-        ch.put('fill buffer')
-        ch.close()
-        self.assertIs(ch.put('failure'), False)
-
     def test_nonblocking_get_closed_empty_buffer(self):
         ch = chan(1)
         ch.close()
@@ -96,32 +138,6 @@ class TestBufferedChannel(unittest.TestCase):
         ch.put('fill buffer')
         ch.close()
         self.assertIs(ch.put('failure', block=False), False)
-
-    def test_close_while_blocking_get(self):
-        ch = chan(1)
-
-        def thread():
-            time.sleep(0.1)
-            ch.close()
-
-        threading.Thread(target=thread).start()
-        self.assertIsNone(ch.get())
-
-    def test_close_while_blocking_put(self):
-        ch = chan(1)
-        ch.put('fill buffer')
-
-        def thread():
-            time.sleep(0.1)
-            ch.close()
-
-        threading.Thread(target=thread).start()
-        self.assertIs(ch.put('failure'), False)
-
-    def test_iter(self):
-        ch = chan(2)
-        ontoChan(ch, ['one', 'two'])
-        self.assertEqual(list(ch), ['one', 'two'])
 
     def test_xform_map(self):
         ch = chan(1, xf.map(lambda x: x + 1))
