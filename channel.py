@@ -37,6 +37,9 @@ class FixedBuffer:
         self._maxsize = maxsize
         self._deque = deque()
 
+    def peek(self):
+        return self._deque[0]
+
     def get(self):
         return self._deque.popleft()
 
@@ -222,6 +225,97 @@ class MaybeUnbufferedChannel:
 
             waiters.append({'ch': ch, 'value': sendValue})
             return PENDING
+
+    def _commit(self, maybe):
+        ch = UnbufferedChannel()
+        response = maybe(ch)
+
+        if response is PENDING:
+            response = ch.get()
+
+        ch.close()
+        return response['value']
+
+    def __iter__(self):
+        return _iter(self)
+
+
+class MaybeBufferedChannel:
+    def __init__(self, buf):
+        self._buffer = buf
+        self._lock = threading.Lock()
+        self._putWaiters = deque()
+        self._getWaiters = deque()
+        self._isClosed = False
+
+    def _syncBuffer(self):
+        """Syncs buffer with pending get and wait transactions"""
+
+        # Transfer elements from pending puts to buffer
+        if not self._isClosed:
+            while len(self._putWaiters) > 0 and not self._buffer.isFull():
+                putWaiter = self._putWaiters.popleft()
+                if putWaiter['ch'].put({'ch': self, 'value': True}):
+                    self._buffer.put(putWaiter['value'])  # TODO: xform
+
+        # Distribute buffer elements to pending gets
+        while len(self._getWaiters) > 0 and not self._buffer.isEmpty():
+            getWaiter = self._getWaiter.popleft()
+            if getWaiter['ch'].put({'ch': self,
+                                    'value': self._buffer.peek()}):
+                self._buffer.get()
+
+        # Cancel pending gets if ch is closed and buf is empty
+        if self._isClosed and self._buffer.isEmpty():
+            for getWaiter in self._getWaiters:
+                getWaiter['ch'].put({'ch': self, 'value': None})
+            self._getWaiters.clear()
+
+    def maybePut(self, ch, item):
+        if item is None:
+            raise TypeError('item cannot be None')
+        with self._lock:
+            if self._isClosed:
+                return {'ch': self, 'value': False}
+
+            if not self._buffer.isFull():
+                self._buffer.put(item)  # TODO: xform
+                self._syncBuffer()
+                return {'ch': self, 'value': True}
+
+            self._putWaiters.append({'ch': ch, 'value': item})
+            return PENDING
+
+    def maybeGet(self, ch):
+        with self._lock:
+            if not self._buffer.isEmpty():
+                item = self._buffer.get()
+                self._syncBuffer()
+                return {'ch': self, 'value': item}
+
+            if self._isClosed:
+                return {'ch': self, 'value': None}
+
+            self._getWaiters.append({'ch': ch, 'value': True})
+            return PENDING
+
+    def get(self):
+        return self._commit(self.maybeGet)
+
+    def put(self, item):
+        return self._commit(lambda ch: self.maybePut(ch, item))
+
+    def close(self):
+        with self._lock:
+            if not self._isClosed:
+                # Cancel pending puts
+                for putWaiter in self._putWaiters:
+                    putWaiter['ch'].put({'ch': self, 'value': False})
+                self._putWaiters.clear()
+
+                # TODO: Complete xform
+                self._isClosed = True
+                self._syncBuffer()
 
     def _commit(self, maybe):
         ch = UnbufferedChannel()
