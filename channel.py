@@ -307,7 +307,7 @@ class MaybeBufferedChannel:
 
         # Transfer buffer elements to pending gets
         while len(self._getWaiters) > 0 and not self._buffer.isEmpty():
-            getWaiter = self._getWaiter.popleft()
+            getWaiter = self._getWaiters.popleft()
             if getWaiter['ch'].put({'ch': self,
                                     'value': self._buffer.peek()}):
                 self._buffer.get()
