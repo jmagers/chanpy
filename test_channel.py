@@ -84,6 +84,62 @@ class TestBlockingMaybeBufferedChannel(unittest.TestCase,
         return c.MaybeBufferedChannel(c.FixedBuffer(n))
 
 
+class AbstractTestXform:
+    def test_xform_map(self):
+        ch = self.chan(1, xf.map(lambda x: x + 1))
+        ontoChan(ch, [0, 1, 2])
+        self.assertEqual(list(ch), [1, 2, 3])
+
+    def test_xform_filter(self):
+        ch = self.chan(1, xf.filter(lambda x: x % 2 == 0))
+        ontoChan(ch, [0, 1, 2])
+        self.assertEqual(list(ch), [0, 2])
+
+    def test_xform_early_termination(self):
+        ch = self.chan(1, xf.take(2))
+        ontoChan(ch, [1, 2, 3, 4])
+        self.assertEqual(list(ch), [1, 2])
+
+    def test_xform_successful_overfilled_buffer(self):
+        ch = self.chan(1, xf.cat)
+        ch.put([1, 2, 3])
+        ch.close()
+        self.assertEqual(list(ch), [1, 2, 3])
+
+    def test_xform_unsuccessful_nonblocking_put_overfilled_buffer(self):
+        ch = self.chan(1, xf.cat)
+        ch.put([1, 2])
+        self.assertIs(ch.put([1], block=False), False)
+
+    def test_unsuccessful_transformation_to_none(self):
+        ch = self.chan(1, xf.map(lambda _: None))
+        with self.assertRaises(AssertionError):
+            ch.put('failure')
+
+    def test_close_flushes_xform_buffer(self):
+        ch = self.chan(3, xf.partitionAll(2))
+        ontoChan(ch, range(3))
+        ch.close()
+        self.assertEqual(list(ch), [(0, 1), (2,)])
+
+
+class TestXformBufferedChannel(unittest.TestCase, AbstractTestXform):
+    @staticmethod
+    def chan(n, xform):
+        return c.BufferedChannel(c.FixedBuffer(n), xform)
+
+
+class TestXformMaybeBufferedChannel(unittest.TestCase, AbstractTestXform):
+    @staticmethod
+    def chan(n, xform):
+        return c.MaybeBufferedChannel(c.FixedBuffer(n), xform)
+
+    def test_xform_unsuccessful_nonblocking_put_overfilled_buffer(self):
+        # TODO: Delete this once nonblocking operations have been implemented
+        # in MaybeBufferedChannel
+        pass
+
+
 class TestBufferedChannel(unittest.TestCase):
     def test_unsuccessful_nonpositive_buffer(self):
         with self.assertRaises(ValueError):
@@ -138,43 +194,6 @@ class TestBufferedChannel(unittest.TestCase):
         ch.put('fill buffer')
         ch.close()
         self.assertIs(ch.put('failure', block=False), False)
-
-    def test_xform_map(self):
-        ch = chan(1, xf.map(lambda x: x + 1))
-        ontoChan(ch, [0, 1, 2])
-        self.assertEqual(list(ch), [1, 2, 3])
-
-    def test_xform_filter(self):
-        ch = chan(1, xf.filter(lambda x: x % 2 == 0))
-        ontoChan(ch, [0, 1, 2])
-        self.assertEqual(list(ch), [0, 2])
-
-    def test_xform_early_termination(self):
-        ch = chan(1, xf.take(2))
-        ontoChan(ch, [1, 2, 3, 4])
-        self.assertEqual(list(ch), [1, 2])
-
-    def test_xform_successful_overfilled_buffer(self):
-        ch = chan(1, xf.cat)
-        ch.put([1, 2, 3])
-        ch.close()
-        self.assertEqual(list(ch), [1, 2, 3])
-
-    def test_xform_unsuccessful_nonblocking_put_overfilled_buffer(self):
-        ch = chan(1, xf.cat)
-        ch.put([1, 2])
-        self.assertIs(ch.put([1], block=False), False)
-
-    def test_unsuccessful_transformation_to_none(self):
-        ch = chan(1, xf.map(lambda _: None))
-        with self.assertRaises(AssertionError):
-            ch.put('failure')
-
-    def test_close_flushes_xform_buffer(self):
-        ch = chan(3, xf.partitionAll(2))
-        ontoChan(ch, range(3))
-        ch.close()
-        self.assertEqual(list(ch), [(0, 1), (2,)])
 
 
 class AbstractTestUnbufferedBlockingCalls:
