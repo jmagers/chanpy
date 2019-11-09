@@ -384,9 +384,9 @@ def chan(buf=None, xform=None):
     if buf is None:
         if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
-        return UnbufferedChannel()
+        return MaybeUnbufferedChannel()
     newBuf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return BufferedChannel(newBuf, identity if xform is None else xform)
+    return MaybeBufferedChannel(newBuf, identity if xform is None else xform)
 
 
 def reduce(f, init, ch):
@@ -433,8 +433,13 @@ def merge(chs, buf=None):
     toCh = chan(buf)
 
     def thread():
-        for doneCh in [pipe(fromCh, toCh, close=False) for fromCh in chs]:
-            doneCh.get()
+        ports = set(chs)
+        while len(ports) > 0:
+            val, ch = alts(ports)
+            if val is None:
+                ports.remove(ch)
+            else:
+                toCh.put(val)
         toCh.close()
 
     threading.Thread(target=thread).start()
