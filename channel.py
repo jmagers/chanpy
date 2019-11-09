@@ -418,13 +418,11 @@ def pipe(fromCh, toCh, close=True):
     def thread():
         while True:
             val = fromCh.get()
-            if val is None:
+            if val is None or not toCh.put(val):
                 completeCh.close()
                 if close:
                     toCh.close()
                 return
-            toCh.put(val)
-
     threading.Thread(target=thread).start()
     return completeCh
 

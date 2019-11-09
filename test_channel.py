@@ -786,6 +786,18 @@ class TestPipe(unittest.TestCase):
         dest.put('success')
         self.assertEqual(dest.get(), 'success')
 
+    def test_stop_consuming_when_dest_closes(self):
+        src, dest = chan(3), chan(1)
+        src.put('intoDest')
+        src.put('dropMe')
+        src.put('remainInSrc')
+        pipe(src, dest)
+        time.sleep(0.1)
+        dest.close()
+        self.assertEqual(dest.get(), 'intoDest')
+        self.assertIsNone(dest.get())
+        self.assertEqual(src.get(), 'remainInSrc')
+
 
 class TestMerge(unittest.TestCase):
     def test_merge(self):
