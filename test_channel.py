@@ -296,19 +296,19 @@ class TestMaybeUnbufferedBlockingCalls(unittest.TestCase,
     chan = c.MaybeUnbufferedChannel
 
 
-class TestUnbufferedChannel(unittest.TestCase):
+class AbstractTestUnbufferedNonblockingCalls:
     def test_unsuccessful_nonblocking_put_none(self):
         with self.assertRaises(TypeError):
-            chan().put(None, block=False)
+            self.chan().put(None, block=False)
 
     def test_successful_nonblocking_get(self):
-        ch = chan()
+        ch = self.chan()
         threading.Thread(target=ch.put, args=['success']).start()
         time.sleep(0.1)
         self.assertEqual(ch.get(block=False), 'success')
 
     def test_successful_nonblocking_put(self):
-        ch = chan()
+        ch = self.chan()
 
         def thread():
             time.sleep(0.1)
@@ -318,20 +318,30 @@ class TestUnbufferedChannel(unittest.TestCase):
         self.assertEqual(ch.get(), 'success')
 
     def test_unsuccessful_nonblocking_get(self):
-        self.assertIsNone(chan().get(block=False))
+        self.assertIsNone(self.chan().get(block=False))
 
     def test_unsuccessful_nonblocking_put(self):
-        self.assertIs(chan().put('failure', block=False), False)
+        self.assertIs(self.chan().put('failure', block=False), False)
 
     def test_nonblocking_get_after_close(self):
-        ch = chan()
+        ch = self.chan()
         ch.close()
         self.assertIsNone(ch.get(block=False))
 
     def test_nonblocking_put_after_close(self):
-        ch = chan()
+        ch = self.chan()
         ch.close()
         self.assertIs(ch.put('failure', block=False), False)
+
+
+class TestUnbufferedNonblocking(unittest.TestCase,
+                                AbstractTestUnbufferedNonblockingCalls):
+    chan = c.UnbufferedChannel
+
+
+class TestMaybeUnbufferedNonblocking(unittest.TestCase,
+                                     AbstractTestUnbufferedNonblockingCalls):
+    chan = c.MaybeUnbufferedChannel
 
 
 class AbstractTestAlts:

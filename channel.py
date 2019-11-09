@@ -178,17 +178,41 @@ class MaybeUnbufferedChannel:
         self._getWaiters = deque()
         self._isClosed = False
 
-    def maybeGet(self, ch):
-        return self._maybe(requestType='get', ch=ch, sendValue=True)
+    def maybeGet(self, ch, block=True):
+        with self._lock:
+            if self._isClosed or (not block and len(self._putWaiters) == 0):
+                return {'ch': self, 'value': None}
 
-    def maybePut(self, ch, item):
-        return self._maybe(requestType='put', ch=ch, sendValue=item)
+            # Return immediately if a putWaiter is available
+            while len(self._putWaiters) > 0:
+                putWaiter = self._putWaiters.popleft()
+                if putWaiter['ch'].put({'ch': self, 'value': True}):
+                    return {'ch': self, 'value': putWaiter['value']}
 
-    def get(self):
-        return self._commit(self.maybeGet)
+            self._getWaiters.append({'ch': ch, 'value': True})
+            return PENDING
 
-    def put(self, item):
-        return self._commit(lambda ch: self.maybePut(ch, item))
+    def maybePut(self, ch, item, block=True):
+        if item is None:
+            raise TypeError('item cannot be None')
+        with self._lock:
+            if self._isClosed or (not block and len(self._getWaiters) == 0):
+                return {'ch': self, 'value': False}
+
+            # Return immediately if a getWaiter is available
+            while len(self._getWaiters) > 0:
+                getWaiter = self._getWaiters.popleft()
+                if getWaiter['ch'].put({'ch': self, 'value': item}):
+                    return {'ch': self, 'value': True}
+
+            self._putWaiters.append({'ch': ch, 'value': item})
+            return PENDING
+
+    def get(self, block=True):
+        return self._commit('get', block)
+
+    def put(self, item, block=True):
+        return self._commit('put', block, item)
 
     def close(self):
         with self._lock:
@@ -201,34 +225,11 @@ class MaybeUnbufferedChannel:
                 self._putWaiters.clear()
                 self._isClosed = True
 
-    def _maybe(self, requestType, ch, sendValue):
-        with self._lock:
-            if requestType == 'get':
-                waiters = self._getWaiters
-                oppositeWaiters = self._putWaiters
-                closedValue = None
-            elif requestType == 'put':
-                if sendValue is None:
-                    raise TypeError('item cannot be None')
-                waiters = self._putWaiters
-                oppositeWaiters = self._getWaiters
-                closedValue = False
-
-            if self._isClosed:
-                return {'ch': self, 'value': closedValue}
-
-            # Return immediately if an opposite waiter is available
-            while len(oppositeWaiters) > 0:
-                opWaiter = oppositeWaiters.popleft()
-                if opWaiter['ch'].put({'ch': self, 'value': sendValue}):
-                    return {'ch': self, 'value': opWaiter['value']}
-
-            waiters.append({'ch': ch, 'value': sendValue})
-            return PENDING
-
-    def _commit(self, maybe):
+    def _commit(self, reqType, block, item=None):
         ch = UnbufferedChannel()
-        response = maybe(ch)
+        response = (self.maybeGet(ch, block)
+                    if reqType == 'get'
+                    else self.maybePut(ch, item, block))
 
         if response is PENDING:
             response = ch.get()
