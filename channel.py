@@ -254,11 +254,11 @@ class MaybeBufferedChannel:
 
         self._rf = xform(multiArity(lambda: None, lambda _: None, step))
 
-    def maybePut(self, ch, item):
+    def maybePut(self, ch, item, block=True):
         if item is None:
             raise TypeError('item cannot be None')
         with self._lock:
-            if self._isClosed:
+            if self._isClosed or (not block and self._buffer.isFull()):
                 return {'ch': self, 'value': False}
 
             if not self._buffer.isFull():
@@ -269,24 +269,24 @@ class MaybeBufferedChannel:
             self._putWaiters.append({'ch': ch, 'value': item})
             return PENDING
 
-    def maybeGet(self, ch):
+    def maybeGet(self, ch, block=True):
         with self._lock:
             if not self._buffer.isEmpty():
                 item = self._buffer.get()
                 self._syncBuffer()
                 return {'ch': self, 'value': item}
 
-            if self._isClosed:
+            if self._isClosed or not block:
                 return {'ch': self, 'value': None}
 
             self._getWaiters.append({'ch': ch, 'value': True})
             return PENDING
 
-    def get(self):
-        return self._commit(self.maybeGet)
+    def get(self, block=True):
+        return self._commit('get', block)
 
-    def put(self, item):
-        return self._commit(lambda ch: self.maybePut(ch, item))
+    def put(self, item, block=True):
+        return self._commit('put', block, item)
 
     def close(self):
         with self._lock:
@@ -330,9 +330,11 @@ class MaybeBufferedChannel:
             self._isClosed = True
             self._syncBuffer()
 
-    def _commit(self, maybe):
+    def _commit(self, reqType, block, item=None):
         ch = UnbufferedChannel()
-        response = maybe(ch)
+        response = (self.maybeGet(ch, block)
+                    if reqType == 'get'
+                    else self.maybePut(ch, item, block))
 
         if response is PENDING:
             response = ch.get()

@@ -134,29 +134,20 @@ class TestXformMaybeBufferedChannel(unittest.TestCase, AbstractTestXform):
     def chan(n, xform):
         return c.MaybeBufferedChannel(c.FixedBuffer(n), xform)
 
-    def test_xform_unsuccessful_nonblocking_put_overfilled_buffer(self):
-        # TODO: Delete this once nonblocking operations have been implemented
-        # in MaybeBufferedChannel
-        pass
 
-
-class TestBufferedChannel(unittest.TestCase):
-    def test_unsuccessful_nonpositive_buffer(self):
-        with self.assertRaises(ValueError):
-            chan(0)
-
+class AbstractTestBufferedNonblockingCalls:
     def test_unsuccessful_nonblocking_put_none(self):
         with self.assertRaises(TypeError):
-            chan(1).put(None, block=False)
+            self.chan(1).put(None, block=False)
 
     def test_successful_nonblocking_get(self):
-        ch = chan(1)
+        ch = self.chan(1)
         threading.Thread(target=ch.put, args=['success']).start()
         time.sleep(0.1)
         self.assertEqual(ch.get(block=False), 'success')
 
     def test_successful_nonblocking_put(self):
-        ch = chan(1)
+        ch = self.chan(1)
 
         def thread():
             time.sleep(0.1)
@@ -166,34 +157,54 @@ class TestBufferedChannel(unittest.TestCase):
         self.assertEqual(ch.get(), 'success')
 
     def test_unsuccessful_nonblocking_get(self):
-        self.assertIsNone(chan(1).get(block=False))
+        self.assertIsNone(self.chan(1).get(block=False))
 
     def test_unsuccessful_nonblocking_put(self):
-        ch = chan(1)
+        ch = self.chan(1)
         ch.put('fill buffer')
         self.assertIs(ch.put('failure', block=False), False)
 
     def test_nonblocking_get_closed_empty_buffer(self):
-        ch = chan(1)
+        ch = self.chan(1)
         ch.close()
         self.assertIsNone(ch.get(block=False))
 
     def test_nonblocking_get_closed_full_buffer(self):
-        ch = chan(1)
+        ch = self.chan(1)
         ch.put('success')
         ch.close()
         self.assertEqual(ch.get(block=False), 'success')
 
     def test_nonblocking_put_closed_empty_buffer(self):
-        ch = chan(1)
+        ch = self.chan(1)
         ch.close()
         self.assertIs(ch.put('failure', block=False), False)
 
     def test_nonblocking_put_closed_full_buffer(self):
-        ch = chan(1)
+        ch = self.chan(1)
         ch.put('fill buffer')
         ch.close()
         self.assertIs(ch.put('failure', block=False), False)
+
+
+class TestBufferedNonBlockingCalls(unittest.TestCase,
+                                   AbstractTestBufferedNonblockingCalls):
+    @staticmethod
+    def chan(n):
+        return c.BufferedChannel(c.FixedBuffer(n))
+
+
+class TestMaybeBufferedNonblockingCalls(unittest.TestCase,
+                                        AbstractTestBufferedNonblockingCalls):
+    @staticmethod
+    def chan(n):
+        return c.MaybeBufferedChannel(c.FixedBuffer(n))
+
+
+class TestChan(unittest.TestCase):
+    def test_unsuccessful_nonpositive_buffer(self):
+        with self.assertRaises(ValueError):
+            chan(0)
 
 
 class AbstractTestUnbufferedBlockingCalls:
