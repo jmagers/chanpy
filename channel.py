@@ -346,18 +346,32 @@ class MaybeBufferedChannel:
 
 def alts(ports):
     inputCh = UnbufferedChannel()
+    requests = {}
 
+    # Parse ports into requests
     for p in ports:
         if type(p) in [list, tuple]:
             ch, val = p
-            response = ch.maybePut(inputCh, val)
+            req = {'type': 'put', 'value': val}
         else:
-            response = p.maybeGet(inputCh)
+            ch = p
+            req = {'type': 'get'}
+        if requests.get(ch, req)['type'] != req['type']:
+            raise ValueError('cannot get and put to same channel')
+        requests[ch] = req
+
+    # Start requests
+    for ch, req in requests.items():
+        if req['type'] == 'get':
+            response = ch.maybeGet(inputCh)
+        elif req['type'] == 'put':
+            response = ch.maybePut(inputCh, req['value'])
 
         if response is not PENDING:
             inputCh.close()
             return (response['value'], response['ch'])
 
+    # Wait for first response
     response = inputCh.get()
     inputCh.close()
     return (response['value'], response['ch'])

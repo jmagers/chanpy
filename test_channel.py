@@ -493,6 +493,11 @@ class AbstractTestUnbufferedAlts:
         self.assertEqual(c.alts([ch]), ('success', ch))
         self.assertEqual(ch.get(), (True, ch))
 
+    def test_get_put_same_channel(self):
+        ch = self.chan()
+        with self.assertRaises(ValueError):
+            c.alts([ch, [ch, 'success']])
+
 
 class TestAltsMaybeUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
     chan = c.MaybeUnbufferedChannel
