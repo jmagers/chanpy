@@ -6,6 +6,7 @@ import unittest
 import transducers as xf
 import channel as c
 from channel import chan, ontoChan, mult, pipe, merge
+from toolz import identity
 
 
 class AbstractTestBufferedBlockingCalls:
@@ -657,6 +658,21 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(c.alts([[ch, 'success']]), (True, ch))
         self.assertEqual(c.alts([ch]), ('success', ch))
 
+    def test_xform_state_is_not_modified_when_canceled(self):
+        xformCh = self.chan(1, xf.take(2))
+        xformCh.put('firstTake')
+        ch = self.chan()
+
+        def thread():
+            time.sleep(0.1)
+            ch.put('altsValue')
+
+        threading.Thread(target=thread).start()
+        self.assertEqual(c.alts([ch, [xformCh, 'do not modify xform state']]),
+                         ('altsValue', ch))
+        ontoChan(xformCh, ['secondTake', 'dropMe'])
+        self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
+
 
 class TestAltsMaybeUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
     chan = c.MaybeUnbufferedChannel
@@ -664,8 +680,8 @@ class TestAltsMaybeUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
 
 class TestAltsMaybeBufferedAlts(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
-    def chan(n=1):
-        return c.MaybeBufferedChannel(c.FixedBuffer(n))
+    def chan(n=1, xform=identity):
+        return c.MaybeBufferedChannel(c.FixedBuffer(n), xform)
 
 
 class TestDroppingBuffer(unittest.TestCase):
