@@ -4,30 +4,40 @@ from genericfuncs import multiArity, isReduced, Reduced, unreduced
 from toolz import identity
 
 
-class Atom:
-    def __init__(self, value=None):
-        self._value = value
+class Promise:
+    def __init__(self):
         self._lock = threading.Lock()
+        self._value = None
+        self._completeStatus = None
+        self._valueSet = threading.Condition(self._lock)
+        self._complete = threading.Condition(self._lock)
+
+    def put(self, item):
+        if item is None:
+            raise TypeError('item cannot be None')
+        with self._lock:
+            if self._value is not None:
+                return False
+            self._value = item
+            self._valueSet.notify_all()
+            self._complete.wait_for(lambda: self._completeStatus is not None)
+            return self._completeStatus == 'consumed'
 
     def get(self):
         with self._lock:
+            self._valueSet.wait_for(lambda: (self._value is not None or
+                                             self._completeStatus is not None))
+            if self._completeStatus == 'canceled':
+                return None
+            self._completeStatus = 'consumed'
+            self._complete.notify()
             return self._value
 
-    def reset(self, value):
+    def close(self):
         with self._lock:
-            self._value = value
-
-    def update(self, updater):
-        with self._lock:
-            self._value = updater(self._value)
-
-
-def _iter(ch):
-    while True:
-        value = ch.get()
-        if value is None:
-            break
-        yield value
+            self._completeStatus = self._completeStatus or 'canceled'
+            self._valueSet.notify_all()
+            self._complete.notify_all()
 
 
 class FixedBuffer:
@@ -45,9 +55,6 @@ class FixedBuffer:
 
     def put(self, item):
         self._deque.append(item)
-
-    def size(self):
-        return len(self._deque)
 
     def isEmpty(self):
         return len(self._deque) == 0
@@ -75,102 +82,6 @@ class SlidingBuffer(FixedBuffer):
         return False
 
 
-class BufferedChannel:
-    def __init__(self, buffer, xform=identity):
-        self._lock = threading.Lock()
-        self._notEmpty = threading.Condition(self._lock)
-        self._notFull = threading.Condition(self._lock)
-        self._buffer = buffer
-        self._isClosed = False
-
-        def step(_, val):
-            assert val is not None
-            self._buffer.put(val)
-
-        self._rf = xform(multiArity(lambda: None, lambda _: None, step))
-
-    def get(self, block=True):
-        with self._notEmpty:
-            if not block and self._buffer.isEmpty():
-                return None
-            self._notEmpty.wait_for((lambda: self._isClosed or
-                                     not self._buffer.isEmpty()))
-            if not self._buffer.isEmpty():
-                item = self._buffer.get()
-                if not self._buffer.isFull():
-                    self._notFull.notify()
-                return item
-            return None
-
-    def put(self, item, block=True):
-        if item is None:
-            raise TypeError('item cannot be None')
-        with self._notFull:
-            if not block and self._buffer.isFull():
-                return False
-            self._notFull.wait_for((lambda: self._isClosed or
-                                    not self._buffer.isFull()))
-            if self._isClosed:
-                return False
-            prevBufferSize = self._buffer.size()
-            if isReduced(self._rf(None, item)):
-                self._close()
-            self._notEmpty.notify(self._buffer.size() - prevBufferSize)
-            return True
-
-    def close(self):
-        with self._lock:
-            self._close()
-
-    def _close(self):
-        if not self._isClosed:
-            self._rf(None)
-            self._isClosed = True
-            self._notEmpty.notify_all()
-            self._notFull.notify_all()
-
-    def __iter__(self):
-        return _iter(self)
-
-
-class UnbufferedChannel:
-    def __init__(self):
-        self._itemCh = BufferedChannel(FixedBuffer(1))
-        self._completeCh = BufferedChannel(FixedBuffer(1))
-        self._consumerLock = threading.Lock()
-        self._producerLock = threading.Lock()
-        self._isConsumerWaiting = Atom(False)
-
-    def get(self, block=True):
-        with self._consumerLock:
-            self._isConsumerWaiting.reset(block)
-            item = self._itemCh.get(block=block)
-            self._isConsumerWaiting.reset(False)
-            if item is None or not self._completeCh.put('consumer finished'):
-                return None
-            return item
-
-    def put(self, item, block=True):
-        if item is None:
-            raise TypeError('item cannot be None')
-        with self._producerLock:
-            if not block and not self._isConsumerWaiting.get():
-                return False
-            self._itemCh.put(item)
-            return self._completeCh.get() is not None
-
-    def close(self):
-        self._itemCh.close()
-        self._completeCh.close()
-
-    def __iter__(self):
-        return _iter(self)
-
-
-class PENDING:
-    pass
-
-
 class UnbufferedDeliverer:
     def put(self, deliver, getWaiters, item):
         while len(getWaiters) > 0:
@@ -186,7 +97,7 @@ class UnbufferedDeliverer:
                 return putWaiter['value']
         return None
 
-    def close(self, ch, getWaiters):
+    def close(self, deliver, getWaiters):
         return True
 
 
@@ -233,31 +144,35 @@ class BufferedDeliverer:
                 self._buffer.get()
 
 
+class PENDING:
+    pass
+
+
 class Channel:
     def __init__(self, deliverer):
         self._deliverer = deliverer
         self._lock = threading.Lock()
         self._putWaiters = deque()
         self._getWaiters = deque()
-        self._deliver = lambda wait, val: wait['ch'].put({'ch': self,
-                                                          'value': val})
+        self._deliver = lambda wait, val: wait['promise'].put({'ch': self,
+                                                               'value': val})
         self._isClosed = False
 
-    def maybePut(self, ch, item, block=True):
+    def maybePut(self, promise, item, block=True):
         if item is None:
             raise TypeError('item cannot be None')
         with self._lock:
             if self._isClosed:
                 return False
-            success = self._deliverer.put(self._deliver, self._getWaiters, item)
-            if isReduced(success):
+            done = self._deliverer.put(self._deliver, self._getWaiters, item)
+            if isReduced(done):
                 self._close()
-            if unreduced(success) or not block:
-                return unreduced(success)
-            self._putWaiters.append({'ch': ch, 'value': item})
+            if unreduced(done) or not block:
+                return unreduced(done)
+            self._putWaiters.append({'promise': promise, 'value': item})
             return PENDING
 
-    def maybeGet(self, ch, block=True):
+    def maybeGet(self, promise, block=True):
         with self._lock:
             item = self._deliverer.get(self._deliver, self._putWaiters)
             if isReduced(item):
@@ -268,7 +183,7 @@ class Channel:
                 self._cancelGets()
             if not block or self._isClosed:
                 return None
-            self._getWaiters.append({'ch': ch, 'value': True})
+            self._getWaiters.append({'promise': promise, 'value': True})
             return PENDING
 
     def get(self, block=True):
@@ -283,45 +198,48 @@ class Channel:
 
     def _cancelGets(self):
         for getWaiter in self._getWaiters:
-            getWaiter['ch'].put({'ch': self, 'value': None})
+            getWaiter['promise'].put({'ch': self, 'value': None})
         self._getWaiters.clear()
 
     def _close(self):
         if not self._isClosed:
             for putWaiter in self._putWaiters:
-                putWaiter['ch'].put({'ch': self, 'value': False})
+                putWaiter['promise'].put({'ch': self, 'value': False})
             self._putWaiters.clear()
             if self._deliverer.close(self._deliver, self._getWaiters):
                 self._cancelGets()
             self._isClosed = True
 
     def _commitReq(self, reqType, block, item=None):
-        ch = UnbufferedChannel()
-        response = (self.maybeGet(ch, block)
+        p = Promise()
+        response = (self.maybeGet(p, block)
                     if reqType == 'get'
-                    else self.maybePut(ch, item, block))
+                    else self.maybePut(p, item, block))
 
         if response is not PENDING:
             return response
 
-        secondResponse = ch.get()
-        ch.close()
+        secondResponse = p.get()
         return secondResponse['value']
 
     def __iter__(self):
-        return _iter(self)
+        while True:
+            value = self.get()
+            if value is None:
+                break
+            yield value
 
 
-def MaybeUnbufferedChannel():
+def UnbufferedChannel():
     return Channel(UnbufferedDeliverer())
 
 
-def MaybeBufferedChannel(buf, xform=identity):
+def BufferedChannel(buf, xform=identity):
     return Channel(BufferedDeliverer(buf, xform))
 
 
 def alts(ports):
-    inputCh = UnbufferedChannel()
+    inbox = Promise()
     requests = {}
 
     # Parse ports into requests
@@ -339,17 +257,16 @@ def alts(ports):
     # Start requests
     for ch, req in requests.items():
         if req['type'] == 'get':
-            response = ch.maybeGet(inputCh)
+            response = ch.maybeGet(inbox)
         elif req['type'] == 'put':
-            response = ch.maybePut(inputCh, req['value'])
+            response = ch.maybePut(inbox, req['value'])
 
         if response is not PENDING:
-            inputCh.close()
+            inbox.close()
             return (response, ch)
 
     # Wait for second response
-    secondResponse = inputCh.get()
-    inputCh.close()
+    secondResponse = inbox.get()
     return (secondResponse['value'], secondResponse['ch'])
 
 
@@ -357,9 +274,9 @@ def chan(buf=None, xform=None):
     if buf is None:
         if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
-        return MaybeUnbufferedChannel()
+        return UnbufferedChannel()
     newBuf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return MaybeBufferedChannel(newBuf, identity if xform is None else xform)
+    return BufferedChannel(newBuf, identity if xform is None else xform)
 
 
 def reduce(f, init, ch):

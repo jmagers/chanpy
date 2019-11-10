@@ -78,13 +78,6 @@ class TestBlockingBufferedChannel(unittest.TestCase,
         return c.BufferedChannel(c.FixedBuffer(n))
 
 
-class TestBlockingMaybeBufferedChannel(unittest.TestCase,
-                                       AbstractTestBufferedBlockingCalls):
-    @staticmethod
-    def chan(n):
-        return c.MaybeBufferedChannel(c.FixedBuffer(n))
-
-
 class AbstractTestXform:
     def test_xform_map(self):
         ch = self.chan(1, xf.map(lambda x: x + 1))
@@ -128,12 +121,6 @@ class TestXformBufferedChannel(unittest.TestCase, AbstractTestXform):
     @staticmethod
     def chan(n, xform):
         return c.BufferedChannel(c.FixedBuffer(n), xform)
-
-
-class TestXformMaybeBufferedChannel(unittest.TestCase, AbstractTestXform):
-    @staticmethod
-    def chan(n, xform):
-        return c.MaybeBufferedChannel(c.FixedBuffer(n), xform)
 
 
 class AbstractTestBufferedNonblockingCalls:
@@ -193,13 +180,6 @@ class TestBufferedNonBlockingCalls(unittest.TestCase,
     @staticmethod
     def chan(n):
         return c.BufferedChannel(c.FixedBuffer(n))
-
-
-class TestMaybeBufferedNonblockingCalls(unittest.TestCase,
-                                        AbstractTestBufferedNonblockingCalls):
-    @staticmethod
-    def chan(n):
-        return c.MaybeBufferedChannel(c.FixedBuffer(n))
 
 
 class TestChan(unittest.TestCase):
@@ -289,14 +269,9 @@ class AbstractTestUnbufferedBlockingCalls:
 
 class TestUnbufferedBlockingCalls(unittest.TestCase,
                                   AbstractTestUnbufferedBlockingCalls):
-    chan = c.UnbufferedChannel
-
-
-class TestMaybeUnbufferedBlockingCalls(unittest.TestCase,
-                                       AbstractTestUnbufferedBlockingCalls):
     @staticmethod
     def chan():
-        return c.MaybeUnbufferedChannel()
+        return c.UnbufferedChannel()
 
 
 class AbstractTestUnbufferedNonblockingCalls:
@@ -339,14 +314,9 @@ class AbstractTestUnbufferedNonblockingCalls:
 
 class TestUnbufferedNonblocking(unittest.TestCase,
                                 AbstractTestUnbufferedNonblockingCalls):
-    chan = c.UnbufferedChannel
-
-
-class TestMaybeUnbufferedNonblocking(unittest.TestCase,
-                                     AbstractTestUnbufferedNonblockingCalls):
     @staticmethod
     def chan():
-        return c.MaybeUnbufferedChannel()
+        return c.UnbufferedChannel()
 
 
 class AbstractTestAlts:
@@ -678,16 +648,16 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
 
 
-class TestAltsMaybeUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
+class TestAltsUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
     @staticmethod
     def chan():
-        return c.MaybeUnbufferedChannel()
+        return c.UnbufferedChannel()
 
 
-class TestAltsMaybeBuffered(unittest.TestCase, AbstractTestBufferedAlts):
+class TestAltsBuffered(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
     def chan(n=1, xform=identity):
-        return c.MaybeBufferedChannel(c.FixedBuffer(n), xform)
+        return c.BufferedChannel(c.FixedBuffer(n), xform)
 
 
 class TestDroppingBuffer(unittest.TestCase):
