@@ -1,6 +1,6 @@
 import threading
 from collections import deque
-from genericfuncs import multiArity, isReduced
+from genericfuncs import multiArity, isReduced, Reduced, unreduced
 from toolz import identity
 
 
@@ -171,180 +171,153 @@ class PENDING:
     pass
 
 
-class MaybeUnbufferedChannel:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._putWaiters = deque()
-        self._getWaiters = deque()
-        self._isClosed = False
+class UnbufferedDeliverer:
+    def put(self, deliver, getWaiters, item):
+        while len(getWaiters) > 0:
+            getWaiter = getWaiters.popleft()
+            if deliver(getWaiter, item):
+                return True
+        return False
 
-    def maybeGet(self, ch, block=True):
-        with self._lock:
-            if self._isClosed or (not block and len(self._putWaiters) == 0):
-                return {'ch': self, 'value': None}
+    def get(self, deliver, putWaiters):
+        while len(putWaiters) > 0:
+            putWaiter = putWaiters.popleft()
+            if deliver(putWaiter, True):
+                return putWaiter['value']
+        return None
 
-            # Return immediately if a putWaiter is available
-            while len(self._putWaiters) > 0:
-                putWaiter = self._putWaiters.popleft()
-                if putWaiter['ch'].put({'ch': self, 'value': True}):
-                    return {'ch': self, 'value': putWaiter['value']}
-
-            self._getWaiters.append({'ch': ch, 'value': True})
-            return PENDING
-
-    def maybePut(self, ch, item, block=True):
-        if item is None:
-            raise TypeError('item cannot be None')
-        with self._lock:
-            if self._isClosed or (not block and len(self._getWaiters) == 0):
-                return {'ch': self, 'value': False}
-
-            # Return immediately if a getWaiter is available
-            while len(self._getWaiters) > 0:
-                getWaiter = self._getWaiters.popleft()
-                if getWaiter['ch'].put({'ch': self, 'value': item}):
-                    return {'ch': self, 'value': True}
-
-            self._putWaiters.append({'ch': ch, 'value': item})
-            return PENDING
-
-    def get(self, block=True):
-        return self._commit('get', block)
-
-    def put(self, item, block=True):
-        return self._commit('put', block, item)
-
-    def close(self):
-        with self._lock:
-            if not self._isClosed:
-                for getWaiter in self._getWaiters:
-                    getWaiter['ch'].put({'ch': self, 'value': None})
-                for putWaiter in self._putWaiters:
-                    putWaiter['ch'].put({'ch': self, 'value': False})
-                self._getWaiters.clear()
-                self._putWaiters.clear()
-                self._isClosed = True
-
-    def _commit(self, reqType, block, item=None):
-        ch = UnbufferedChannel()
-        response = (self.maybeGet(ch, block)
-                    if reqType == 'get'
-                    else self.maybePut(ch, item, block))
-
-        if response is PENDING:
-            response = ch.get()
-
-        ch.close()
-        return response['value']
-
-    def __iter__(self):
-        return _iter(self)
+    def close(self, ch, getWaiters):
+        return True
 
 
-class MaybeBufferedChannel:
+class BufferedDeliverer:
     def __init__(self, buf, xform=identity):
         self._buffer = buf
-        self._lock = threading.Lock()
-        self._putWaiters = deque()
-        self._getWaiters = deque()
-        self._isClosed = False
 
         def step(_, val):
             assert val is not None
             self._buffer.put(val)
 
-        self._rf = xform(multiArity(lambda: None, lambda _: None, step))
+        self._bufferRf = xform(multiArity(lambda: None, lambda _: None, step))
+
+    def put(self, deliver, getWaiters, item):
+        if self._buffer.isFull():
+            return False
+        reduced = isReduced(self._bufferRf(None, item))
+        self._deliverBufferItems(deliver, getWaiters)
+        return Reduced(True) if reduced else True
+
+    def get(self, deliver, putWaiters):
+        if self._buffer.isEmpty():
+            return None
+        item = self._buffer.get()
+
+        # Transfer pending put items into buffer
+        while len(putWaiters) > 0 and not self._buffer.isFull():
+            putWaiter = putWaiters.popleft()
+            if deliver(putWaiter, True):
+                if isReduced(self._bufferRf(None, putWaiter['value'])):
+                    return Reduced(item)
+
+        return item
+
+    def close(self, deliver, getWaiters):
+        self._bufferRf(None)
+        self._deliverBufferItems(deliver, getWaiters)
+        return self._buffer.isEmpty()
+
+    def _deliverBufferItems(self, deliver, getWaiters):
+        while len(getWaiters) > 0 and not self._buffer.isEmpty():
+            getWaiter = getWaiters.popleft()
+            if deliver(getWaiter, self._buffer.peek()):
+                self._buffer.get()
+
+
+class Channel:
+    def __init__(self, deliverer):
+        self._deliverer = deliverer
+        self._lock = threading.Lock()
+        self._putWaiters = deque()
+        self._getWaiters = deque()
+        self._deliver = lambda wait, val: wait['ch'].put({'ch': self,
+                                                          'value': val})
+        self._isClosed = False
 
     def maybePut(self, ch, item, block=True):
         if item is None:
             raise TypeError('item cannot be None')
         with self._lock:
-            if self._isClosed or (not block and self._buffer.isFull()):
-                return {'ch': self, 'value': False}
-
-            if not self._buffer.isFull():
-                self._put(item)
-                self._syncBuffer()
-                return {'ch': self, 'value': True}
-
+            if self._isClosed:
+                return False
+            success = self._deliverer.put(self._deliver, self._getWaiters, item)
+            if isReduced(success):
+                self._close()
+            if unreduced(success) or not block:
+                return unreduced(success)
             self._putWaiters.append({'ch': ch, 'value': item})
             return PENDING
 
     def maybeGet(self, ch, block=True):
         with self._lock:
-            if not self._buffer.isEmpty():
-                item = self._buffer.get()
-                self._syncBuffer()
-                return {'ch': self, 'value': item}
-
-            if self._isClosed or not block:
-                return {'ch': self, 'value': None}
-
+            item = self._deliverer.get(self._deliver, self._putWaiters)
+            if isReduced(item):
+                self._close()
+            if unreduced(item) is not None:
+                return unreduced(item)
+            if self._isClosed:
+                self._cancelGets()
+            if not block or self._isClosed:
+                return None
             self._getWaiters.append({'ch': ch, 'value': True})
             return PENDING
 
     def get(self, block=True):
-        return self._commit('get', block)
+        return self._commitReq('get', block)
 
     def put(self, item, block=True):
-        return self._commit('put', block, item)
+        return self._commitReq('put', block, item)
 
     def close(self):
         with self._lock:
             self._close()
 
-    def _put(self, item):
-        if isReduced(self._rf(None, item)):
-            self._close()
-
-    def _syncBuffer(self):
-        """Syncs buffer with pending get and wait transactions"""
-
-        # Transfer elements from pending puts to buffer
-        while len(self._putWaiters) > 0 and not self._buffer.isFull():
-            putWaiter = self._putWaiters.popleft()
-            if putWaiter['ch'].put({'ch': self, 'value': True}):
-                self._put(putWaiter['value'])
-
-        # Transfer buffer elements to pending gets
-        while len(self._getWaiters) > 0 and not self._buffer.isEmpty():
-            getWaiter = self._getWaiters.popleft()
-            if getWaiter['ch'].put({'ch': self,
-                                    'value': self._buffer.peek()}):
-                self._buffer.get()
-
-        # Cancel pending gets if ch is closed and buf is empty
-        if self._isClosed and self._buffer.isEmpty():
-            for getWaiter in self._getWaiters:
-                getWaiter['ch'].put({'ch': self, 'value': None})
-            self._getWaiters.clear()
+    def _cancelGets(self):
+        for getWaiter in self._getWaiters:
+            getWaiter['ch'].put({'ch': self, 'value': None})
+        self._getWaiters.clear()
 
     def _close(self):
         if not self._isClosed:
-            # Cancel pending puts
             for putWaiter in self._putWaiters:
                 putWaiter['ch'].put({'ch': self, 'value': False})
             self._putWaiters.clear()
-
-            # Complete xform and sync buffer
-            self._rf(None)
+            if self._deliverer.close(self._deliver, self._getWaiters):
+                self._cancelGets()
             self._isClosed = True
-            self._syncBuffer()
 
-    def _commit(self, reqType, block, item=None):
+    def _commitReq(self, reqType, block, item=None):
         ch = UnbufferedChannel()
         response = (self.maybeGet(ch, block)
                     if reqType == 'get'
                     else self.maybePut(ch, item, block))
 
-        if response is PENDING:
-            response = ch.get()
+        if response is not PENDING:
+            return response
 
+        secondResponse = ch.get()
         ch.close()
-        return response['value']
+        return secondResponse['value']
 
     def __iter__(self):
         return _iter(self)
+
+
+def MaybeUnbufferedChannel():
+    return Channel(UnbufferedDeliverer())
+
+
+def MaybeBufferedChannel(buf, xform=identity):
+    return Channel(BufferedDeliverer(buf, xform))
 
 
 def alts(ports):
@@ -372,12 +345,12 @@ def alts(ports):
 
         if response is not PENDING:
             inputCh.close()
-            return (response['value'], response['ch'])
+            return (response, ch)
 
-    # Wait for first response
-    response = inputCh.get()
+    # Wait for second response
+    secondResponse = inputCh.get()
     inputCh.close()
-    return (response['value'], response['ch'])
+    return (secondResponse['value'], secondResponse['ch'])
 
 
 def chan(buf=None, xform=None):
