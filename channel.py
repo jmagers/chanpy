@@ -238,6 +238,11 @@ def BufferedChannel(buf, xform=identity):
     return Channel(BufferedDeliverer(buf, xform))
 
 
+def isChan(ch):
+    methodNames = 'maybeGet', 'maybePut', 'get', 'put', 'close', '__iter__'
+    return all(hasattr(ch, method) for method in methodNames)
+
+
 def alts(ports):
     inbox = Promise()
     requests = {}
@@ -378,3 +383,57 @@ class Mult:
 
 def mult(ch):
     return Mult(ch)
+
+
+class Mix:
+    def __init__(self, toCh):
+        self._stateMapCh = chan(SlidingBuffer(1))
+        self._stateMap = {}
+        self._lock = threading.Lock()
+        threading.Thread(target=self._proc, args=[toCh], daemon=True).start()
+
+    def toggle(self, stateMap):
+        with self._lock:
+            for ch, state in stateMap.items():
+                if not isChan(ch):
+                    raise ValueError(f'stateMap key is not a channel: {state}')
+                if not set(state.keys()).issubset({'pause', 'mute'}):
+                    raise ValueError(f'state contains invalid options: '
+                                     f'{state}')
+                if not set(state.values()).issubset({True, False}):
+                    raise ValueError(f'state contains non-boolean values: '
+                                     f'{state}')
+            for fromCh, newState in stateMap.items():
+                originalState = self._stateMap.get(ch, {'pause': False,
+                                                        'mute': False})
+                self._stateMap[fromCh] = {**originalState, **newState}
+            self._stateMapCh.put(dict(self._stateMap))
+
+    def admix(self, ch):
+        self.toggle({ch: {}})
+
+    def unmix(self, ch):
+        with self._lock:
+            self._stateMap.pop(ch, None)
+            self._stateMapCh.put(dict(self._stateMap))
+
+    def _proc(self, toCh):
+        stateMap = {}
+        while True:
+            nonPausedChs = [ch for ch, state in stateMap.items()
+                            if not state['pause']]
+            val, ch = alts([self._stateMapCh, *nonPausedChs])
+            if ch is self._stateMapCh:
+                stateMap = val
+            elif val is None:
+                with self._lock:
+                    self._stateMap.pop(ch, None)
+                stateMap.pop(ch)
+            elif stateMap[ch]['mute']:
+                pass
+            elif not toCh.put(val):
+                break
+
+
+def mix(ch):
+    return Mix(ch)

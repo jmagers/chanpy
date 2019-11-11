@@ -757,6 +757,132 @@ class TestMult(unittest.TestCase):
         self.assertIs(noCloseDest.put('not closed'), True)
 
 
+class TestMix(unittest.TestCase):
+    def test_toggle_exceptions(self):
+        ch = chan()
+        m = c.mix(ch)
+        with self.assertRaises(ValueError):
+            m.toggle({'not a channel': {}})
+        with self.assertRaises(ValueError):
+            m.toggle({ch: {'invalid option': True}})
+        with self.assertRaises(ValueError):
+            m.toggle({ch: {'mute': 'not a boolean'}})
+
+    def test_admix(self):
+        fromCh1, fromCh2, toCh = chan(), chan(), chan(1)
+        m = c.mix(toCh)
+        m.admix(fromCh1)
+        fromCh1.put('fromCh1')
+        self.assertEqual(toCh.get(), 'fromCh1')
+        m.admix(fromCh2)
+        fromCh1.put('fromCh1 again')
+        self.assertEqual(toCh.get(), 'fromCh1 again')
+        fromCh2.put('fromCh2')
+        self.assertEqual(toCh.get(), 'fromCh2')
+
+    def test_unmix(self):
+        fromCh1, fromCh2, toCh = chan(1), chan(1), chan(1)
+        m = c.mix(toCh)
+        m.admix(fromCh1)
+        fromCh1.put('fromCh1')
+        self.assertEqual(toCh.get(), 'fromCh1')
+        m.admix(fromCh2)
+        m.unmix(fromCh1)
+        fromCh2.put('fromCh2')
+        self.assertEqual(toCh.get(), 'fromCh2')
+        fromCh1.put('remain in fromCh1')
+        time.sleep(0.1)
+        self.assertIsNone(toCh.get(block=False))
+        self.assertEqual(fromCh1.get(), 'remain in fromCh1')
+
+    def test_mute(self):
+        unmutedCh, mutedCh, toCh = chan(1), chan(1), chan(1)
+        m = c.mix(toCh)
+        m.toggle({unmutedCh: {'mute': False},
+                  mutedCh: {'mute': True}})
+        unmutedCh.put('not muted')
+        self.assertEqual(toCh.get(), 'not muted')
+        mutedCh.put('mute me')
+        time.sleep(0.1)
+        self.assertIsNone(mutedCh.get(block=False))
+        self.assertIsNone(toCh.get(block=False))
+
+        m.toggle({unmutedCh: {'mute': True},
+                  mutedCh: {'mute': False}})
+        mutedCh.put('the mute can now talk')
+        self.assertEqual(toCh.get(), 'the mute can now talk')
+        unmutedCh.put('i made a deal with Ursula')
+        time.sleep(0.1)
+        self.assertIsNone(unmutedCh.get(block=False))
+        self.assertIsNone(toCh.get(block=False))
+
+    def test_pause(self):
+        unpausedCh, pausedCh, toCh = chan(1), chan(1), chan(1)
+        m = c.mix(toCh)
+        m.toggle({unpausedCh: {'pause': False},
+                  pausedCh: {'pause': True}})
+        unpausedCh.put('not paused')
+        self.assertEqual(toCh.get(), 'not paused')
+        pausedCh.put('remain in pausedCh')
+        time.sleep(0.1)
+        self.assertEqual(pausedCh.get(), 'remain in pausedCh')
+
+        m.toggle({unpausedCh: {'pause': True},
+                  pausedCh: {'pause': False}})
+        pausedCh.put('no longer paused')
+        self.assertEqual(toCh.get(), 'no longer paused')
+        unpausedCh.put('paused now')
+        time.sleep(0.1)
+        self.assertEqual(unpausedCh.get(), 'paused now')
+
+    def test_admix_unmix_toggle_do_not_interrupt_put(self):
+        toCh = chan()
+        fromCh, admixCh, unmixCh, pauseCh = chan(1), chan(1), chan(1), chan(1)
+        m = c.mix(toCh)
+        m.toggle({fromCh: {}, unmixCh: {}})
+
+        # Start blocking put
+        fromCh.put('successful transfer')
+        time.sleep(0.1)
+
+        # Apply operations while mix is waiting on toCh
+        m.admix(admixCh)
+        m.unmix(unmixCh)
+        m.toggle({pauseCh: {'pause': True}})
+
+        # Confirm state is correct
+        self.assertEqual(toCh.get(), 'successful transfer')
+
+        admixCh.put('admixCh added')
+        self.assertEqual(toCh.get(), 'admixCh added')
+
+        unmixCh.put('unmixCh removed')
+        time.sleep(0.1)
+        self.assertEqual(unmixCh.get(), 'unmixCh removed')
+
+        pauseCh.put('pauseCh paused')
+        time.sleep(0.1)
+        self.assertEqual(pauseCh.get(), 'pauseCh paused')
+
+    def test_toCh_does_not_close_when_fromChs_do(self):
+        fromCh, toCh = chan(), chan(1)
+        m = c.mix(toCh)
+        m.admix(fromCh)
+        fromCh.close()
+        time.sleep(0.1)
+        self.assertIs(toCh.put('success'), True)
+
+    def test_mix_consumes_only_one_after_toCh_closes(self):
+        fromCh, toCh = chan(1), chan()
+        m = c.mix(toCh)
+        m.admix(fromCh)
+        toCh.close()
+        fromCh.put('mix consumes me')
+        fromCh.put('mix ignores me')
+        time.sleep(0.1)
+        self.assertEqual(fromCh.get(), 'mix ignores me')
+
+
 class TestPipe(unittest.TestCase):
     def test_pipe_copy(self):
         src, dest = chan(), chan()
