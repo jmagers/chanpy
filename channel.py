@@ -303,7 +303,7 @@ def ontoChan(ch, coll, close=True):
         if close:
             ch.close()
 
-    threading.Thread(target=thread).start()
+    threading.Thread(target=thread, daemon=True).start()
     return newCh
 
 
@@ -318,7 +318,7 @@ def pipe(fromCh, toCh, close=True):
                 if close:
                     toCh.close()
                 return
-    threading.Thread(target=thread).start()
+    threading.Thread(target=thread, daemon=True).start()
     return completeCh
 
 
@@ -335,7 +335,7 @@ def merge(chs, buf=None):
                 toCh.put(val)
         toCh.close()
 
-    threading.Thread(target=thread).start()
+    threading.Thread(target=thread, daemon=True).start()
     return toCh
 
 
@@ -344,7 +344,7 @@ class Mult:
         self._srcCh = ch
         self._consumers = {}
         self._lock = threading.Lock()
-        threading.Thread(target=self._proc).start()
+        threading.Thread(target=self._proc, daemon=True).start()
 
     def tap(self, ch, close=True):
         with self._lock:
@@ -375,7 +375,8 @@ class Mult:
             threads = []
             for consumer in self._copy_consumers():
                 threads.append(threading.Thread(target=consumer.put,
-                                                args=[item]))
+                                                args=[item],
+                                                daemon=True))
                 threads[-1].start()
             for thread in threads:
                 thread.join()
