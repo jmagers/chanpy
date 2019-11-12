@@ -809,6 +809,14 @@ class TestMult(unittest.TestCase):
         self.assertIs(closeDest.put('closed'), False)
         self.assertIs(noCloseDest.put('not closed'), True)
 
+    def test_tap_closes_when_added_after_mult_closes(self):
+        srcCh, tapCh = chan(), chan()
+        m = mult(srcCh)
+        srcCh.close()
+        time.sleep(0.1)
+        m.tap(tapCh)
+        self.assertIsNone(tapCh.get())
+
 
 class TestMix(unittest.TestCase):
     def test_toggle_exceptions(self):

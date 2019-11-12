@@ -357,33 +357,35 @@ class Mult:
     def __init__(self, ch):
         self._srcCh = ch
         self._consumers = {}
+        self._isClosed = False
         self._lock = threading.Lock()
         threading.Thread(target=self._proc, daemon=True).start()
 
     def tap(self, ch, close=True):
         with self._lock:
+            if self._isClosed and close:
+                ch.close()
             self._consumers[ch] = close
 
     def untap(self, ch):
         with self._lock:
             self._consumers.pop(ch, None)
 
-    def _copy_consumers(self):
-        with self._lock:
-            return dict(self._consumers)
-
     def _proc(self):
         while True:
             # Get next item to distribute. Close consumers when srcCh closes.
             item = self._srcCh.get()
             if item is None:
-                for consumer, close in self._copy_consumers().items():
-                    if close:
-                        consumer.close()
+                with self._lock:
+                    self._isClosed = True
+                    for consumer, close in self._consumers.items():
+                        if close:
+                            consumer.close()
                 break
 
             # Distribute item to consumers
-            remainingConsumers = set(self._copy_consumers().keys())
+            with self._lock:
+                remainingConsumers = set(self._consumers.keys())
             while len(remainingConsumers) > 0:
                 stillOpen, ch = alts([ch, item] for ch in remainingConsumers)
                 if not stillOpen:
