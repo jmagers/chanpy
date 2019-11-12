@@ -1,3 +1,4 @@
+import random
 import threading
 from collections import deque, OrderedDict
 from genericfuncs import multiArity, isReduced, Reduced, unreduced
@@ -247,7 +248,10 @@ def isChan(ch):
     return all(hasattr(ch, method) for method in methodNames)
 
 
-def alts(ports):
+def alts(ports, priority=False):
+    if not priority:
+        ports = list(ports)
+        random.shuffle(ports)
     inbox = Promise()
     requests = {}
 
