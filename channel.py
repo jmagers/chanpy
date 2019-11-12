@@ -366,10 +366,7 @@ class Mult:
 
     def untap(self, ch):
         with self._lock:
-            try:
-                del self._consumers[ch]
-            except KeyError:
-                pass
+            self._consumers.pop(ch, None)
 
     def _copy_consumers(self):
         with self._lock:
@@ -386,14 +383,13 @@ class Mult:
                 break
 
             # Distribute item to consumers
-            threads = []
-            for consumer in self._copy_consumers():
-                threads.append(threading.Thread(target=consumer.put,
-                                                args=[item],
-                                                daemon=True))
-                threads[-1].start()
-            for thread in threads:
-                thread.join()
+            remainingConsumers = set(self._copy_consumers().keys())
+            while len(remainingConsumers) > 0:
+                stillOpen, ch = alts([ch, item] for ch in remainingConsumers)
+                if not stillOpen:
+                    with self._lock:
+                        self._consumers.pop(ch, None)
+                remainingConsumers.remove(ch)
 
 
 def mult(ch):
