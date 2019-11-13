@@ -61,9 +61,12 @@ class AbstractTestBufferedBlockingCalls:
         def thread():
             time.sleep(0.1)
             ch.close()
+            ch.get()
 
         threading.Thread(target=thread).start()
-        self.assertIs(ch.put('failure'), False)
+        self.assertIs(ch.put('success'), True)
+        self.assertEqual(ch.get(), 'success')
+        self.assertIsNone(ch.get())
 
     def test_iter(self):
         ch = self.chan(2)
@@ -253,9 +256,11 @@ class AbstractTestUnbufferedBlockingCalls:
         def thread():
             time.sleep(0.1)
             ch.close()
+            ch.get()
 
         threading.Thread(target=thread).start()
-        self.assertIs(ch.put('failure'), False)
+        self.assertIs(ch.put('success'), True)
+        self.assertIsNone(ch.get())
 
     def test_iter(self):
         ch = self.chan()
@@ -493,6 +498,7 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
                                  closedGetCh,
                                  cancelGetCh], priority=True),
                          (None, closedGetCh))
+        self.assertIsNone(closedGetCh.get())
         self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
 
     def test_close_before_put(self):
@@ -504,6 +510,7 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
                                  [closedPutCh, 'noSend'],
                                  [cancelPutCh, 'noSend']], priority=True),
                          (False, closedPutCh))
+        self.assertIsNone(closedPutCh.get())
         self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
 
     def test_close_while_waiting_get(self):
@@ -520,6 +527,7 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
                                  closeGetCh,
                                  [cancelPutCh, 'noSend']], priority=True),
                          (None, closeGetCh))
+        self.assertIsNone(closeGetCh.get())
         self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
 
     def test_close_while_waiting_put(self):
@@ -530,12 +538,14 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
         def thread():
             time.sleep(0.1)
             closePutCh.close()
+            closePutCh.get()
 
         threading.Thread(target=thread).start()
         self.assertEqual(c.alts([cancelGetCh,
-                                 [closePutCh, 'noSend'],
+                                 [closePutCh, 'success'],
                                  [cancelPutCh, 'noSend']], priority=True),
-                         (False, closePutCh))
+                         (True, closePutCh))
+        self.assertIsNone(closePutCh.get())
         self._confirm_chans_not_closed(cancelPutCh, cancelGetCh)
 
     def test_double_alts_successful_transfer(self):
@@ -633,6 +643,7 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
                                  closedGetCh,
                                  cancelGetCh], priority=True),
                          (None, closedGetCh))
+        self.assertIsNone(closedGetCh.get())
 
     def test_close_before_put(self):
         closedPutCh = self.chan(1)
@@ -644,6 +655,7 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
                                  [closedPutCh, 'noSend'],
                                  [cancelPutCh, 'noSend']], priority=True),
                          (False, closedPutCh))
+        self.assertIsNone(closedPutCh.get())
 
     def test_close_while_waiting_get(self):
         closeGetCh = self.chan(1)
@@ -660,6 +672,7 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
                                  closeGetCh,
                                  [cancelPutCh, 'noSend']], priority=True),
                          (None, closeGetCh))
+        self.assertIsNone(closeGetCh.get())
 
     def test_close_while_waiting_put(self):
         closePutCh = self.chan(1)
@@ -671,12 +684,15 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         def thread():
             time.sleep(0.1)
             closePutCh.close()
+            closePutCh.get()
 
         threading.Thread(target=thread).start()
         self.assertEqual(c.alts([cancelGetCh,
-                                 [closePutCh, 'noSend'],
+                                 [closePutCh, 'success'],
                                  [cancelPutCh, 'noSend']], priority=True),
-                         (False, closePutCh))
+                         (True, closePutCh))
+        self.assertEqual(closePutCh.get(), 'success')
+        self.assertIsNone(closePutCh.get())
 
     def test_double_alts_successful_transfer(self):
         ch = self.chan(1)
@@ -967,15 +983,17 @@ class TestPipe(unittest.TestCase):
 
     def test_stop_consuming_when_dest_closes(self):
         src, dest = chan(3), chan(1)
-        src.put('intoDest')
+        src.put('intoDest1')
+        src.put('intoDest2')
         src.put('dropMe')
-        src.put('remainInSrc')
         pipe(src, dest)
         time.sleep(0.1)
         dest.close()
-        self.assertEqual(dest.get(), 'intoDest')
+        self.assertEqual(dest.get(), 'intoDest1')
+        self.assertEqual(dest.get(), 'intoDest2')
         self.assertIsNone(dest.get())
-        self.assertEqual(src.get(), 'remainInSrc')
+        time.sleep(0.1)
+        self.assertIsNone(src.get(block=False))
 
 
 class TestMerge(unittest.TestCase):

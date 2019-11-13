@@ -208,10 +208,8 @@ class Channel:
 
     def _close(self):
         if not self._isClosed:
-            for prom in self._putWaiters.keys():
-                prom.put({'ch': self, 'value': False})
-            self._putWaiters.clear()
-            if self._deliverer.close(self._deliver, self._getWaiters):
+            if (self._deliverer.close(self._deliver, self._getWaiters) and
+                    len(self._putWaiters) == 0):
                 self._cancelGets()
             self._isClosed = True
 
