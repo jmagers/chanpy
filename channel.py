@@ -321,6 +321,20 @@ def ontoChan(ch, coll, close=True):
     return newCh
 
 
+def toChan(coll):
+    ch = chan()
+    ontoChan(ch, coll)
+    return ch
+
+
+def timeout(msecs):
+    ch = chan()
+    timer = threading.Timer(msecs / 1000, ch.close)
+    timer.daemon = True
+    timer.start()
+    return ch
+
+
 def pipe(fromCh, toCh, close=True):
     completeCh = chan()
 
