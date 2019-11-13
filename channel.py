@@ -456,7 +456,8 @@ class Mix:
         while True:
             nonPausedChs = [ch for ch, state in stateMap.items()
                             if not state['pause']]
-            val, ch = alts([self._stateMapCh, *nonPausedChs])
+            random.shuffle(nonPausedChs)
+            val, ch = alts([self._stateMapCh, *nonPausedChs], priority=True)
             if ch is self._stateMapCh:
                 stateMap = val
             elif val is None:
