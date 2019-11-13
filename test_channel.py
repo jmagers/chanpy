@@ -857,7 +857,16 @@ class TestMix(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.toggle({ch: {'invalid option': True}})
         with self.assertRaises(ValueError):
+            m.toggle({ch: {'solo': 'not a boolean'}})
+        with self.assertRaises(ValueError):
+            m.toggle({ch: {'pause': 'not a boolean'}})
+        with self.assertRaises(ValueError):
             m.toggle({ch: {'mute': 'not a boolean'}})
+
+    def test_soloMode_exception(self):
+        m = c.mix(chan())
+        with self.assertRaises(ValueError):
+            m.soloMode('invalid mode')
 
     def test_admix(self):
         fromCh1, fromCh2, toCh = chan(), chan(), chan(1)
@@ -903,15 +912,14 @@ class TestMix(unittest.TestCase):
         self.assertIsNone(toCh.get(block=False))
 
     def test_mute(self):
-        unmutedCh, mutedCh, toCh = chan(1), chan(1), chan(1)
+        unmutedCh, mutedCh = chan(), chan()
+        toCh = chan(1)
         m = c.mix(toCh)
         m.toggle({unmutedCh: {'mute': False},
                   mutedCh: {'mute': True}})
         unmutedCh.put('not muted')
         self.assertEqual(toCh.get(), 'not muted')
         mutedCh.put('mute me')
-        time.sleep(0.1)
-        self.assertIsNone(mutedCh.get(block=False))
         self.assertIsNone(toCh.get(block=False))
 
         m.toggle({unmutedCh: {'mute': True},
@@ -919,8 +927,6 @@ class TestMix(unittest.TestCase):
         mutedCh.put('the mute can now talk')
         self.assertEqual(toCh.get(), 'the mute can now talk')
         unmutedCh.put('i made a deal with Ursula')
-        time.sleep(0.1)
-        self.assertIsNone(unmutedCh.get(block=False))
         self.assertIsNone(toCh.get(block=False))
 
     def test_pause(self):
@@ -941,6 +947,72 @@ class TestMix(unittest.TestCase):
         unpausedCh.put('paused now')
         time.sleep(0.1)
         self.assertEqual(unpausedCh.get(), 'paused now')
+
+    def test_pause_dominates_mute(self):
+        fromCh, toCh = chan(1), chan(1)
+        m = c.mix(toCh)
+        m.toggle({fromCh: {'pause': True, 'mute': True}})
+        fromCh.put('stay in fromCh')
+        time.sleep(0.1)
+        self.assertEqual(fromCh.get(), 'stay in fromCh')
+
+    def test_solo_domintates_pause_and_mute(self):
+        fromCh, toCh = chan(), chan(1)
+        m = c.mix(toCh)
+        m.toggle({fromCh: {'solo': True, 'pause': True, 'mute': True}})
+        fromCh.put('success')
+        self.assertEqual(toCh.get(), 'success')
+
+    def test_solomode_mute(self):
+        soloCh1, soloCh2, nonSoloCh = chan(), chan(), chan()
+        toCh = chan(1)
+        m = c.mix(toCh)
+
+        m.toggle({soloCh1: {'solo': True},
+                  soloCh2: {'solo': True},
+                  nonSoloCh: {}})
+        m.soloMode('mute')
+        soloCh1.put('soloCh1 not muted')
+        self.assertEqual(toCh.get(), 'soloCh1 not muted')
+        soloCh2.put('soloCh2 not muted')
+        self.assertEqual(toCh.get(), 'soloCh2 not muted')
+        nonSoloCh.put('drop me')
+        self.assertIsNone(nonSoloCh.get(block=False))
+        self.assertIsNone(toCh.get(block=False))
+
+        m.toggle({soloCh1: {'solo': False},
+                  soloCh2: {'solo': False}})
+        soloCh1.put('soloCh1 still not muted')
+        self.assertEqual(toCh.get(), 'soloCh1 still not muted')
+        soloCh2.put('soloCh2 still not muted')
+        self.assertEqual(toCh.get(), 'soloCh2 still not muted')
+        nonSoloCh.put('nonSoloCh not muted')
+        self.assertEqual(toCh.get(), 'nonSoloCh not muted')
+
+    def test_solomode_pause(self):
+        soloCh1, soloCh2, nonSoloCh, toCh = chan(1), chan(1), chan(1), chan(1)
+        m = c.mix(toCh)
+
+        m.toggle({soloCh1: {'solo': True},
+                  soloCh2: {'solo': True},
+                  nonSoloCh: {}})
+        m.soloMode('pause')
+        soloCh1.put('soloCh1 not paused')
+        self.assertEqual(toCh.get(), 'soloCh1 not paused')
+        soloCh2.put('soloCh2 not paused')
+        self.assertEqual(toCh.get(), 'soloCh2 not paused')
+        nonSoloCh.put('stay in nonSoloCh')
+        time.sleep(0.1)
+        self.assertEqual(nonSoloCh.get(), 'stay in nonSoloCh')
+
+        m.toggle({soloCh1: {'solo': False},
+                  soloCh2: {'solo': False}})
+        soloCh1.put('soloCh1 still not paused')
+        self.assertEqual(toCh.get(), 'soloCh1 still not paused')
+        soloCh2.put('soloCh2 still not paused')
+        self.assertEqual(toCh.get(), 'soloCh2 still not paused')
+        nonSoloCh.put('nonSoloCh not paused')
+        self.assertEqual(toCh.get(), 'nonSoloCh not paused')
 
     def test_admix_unmix_toggle_do_not_interrupt_put(self):
         toCh = chan()
