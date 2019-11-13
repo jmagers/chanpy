@@ -797,6 +797,20 @@ class TestMult(unittest.TestCase):
         self.assertIsNone(dest2.get(block=False))
         src.close()
 
+    def test_untapAll(self):
+        src, dest1, dest2 = chan(), chan(), chan()
+        m = mult(src)
+        m.tap(dest1)
+        m.tap(dest2)
+        src.put('item')
+        dest1.get()
+        dest2.get()
+        m.untapAll()
+        self.assertIs(src.put("dropMe"), True)
+        time.sleep(0.1)
+        self.assertIsNone(dest1.get(block=False))
+        self.assertIsNone(dest2.get(block=False))
+
     def test_untap_nonexistant_tap(self):
         src = chan()
         m = mult(src)
@@ -871,6 +885,22 @@ class TestMix(unittest.TestCase):
         time.sleep(0.1)
         self.assertIsNone(toCh.get(block=False))
         self.assertEqual(fromCh1.get(), 'remain in fromCh1')
+
+    def test_unmixAll(self):
+        fromCh1, fromCh2, toCh = chan(1), chan(1), chan(1)
+        m = c.mix(toCh)
+        m.admix(fromCh1)
+        m.admix(fromCh2)
+        fromCh1.put('fromCh1')
+        self.assertEqual(toCh.get(), 'fromCh1')
+        fromCh2.put('fromCh2')
+        self.assertEqual(toCh.get(), 'fromCh2')
+        m.unmixAll()
+        time.sleep(0.1)
+        fromCh1.put('ignore fromCh1 item')
+        fromCh2.put('ignore fromCh2 item')
+        time.sleep(0.1)
+        self.assertIsNone(toCh.get(block=False))
 
     def test_mute(self):
         unmutedCh, mutedCh, toCh = chan(1), chan(1), chan(1)

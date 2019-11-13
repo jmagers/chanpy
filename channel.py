@@ -383,6 +383,10 @@ class Mult:
         with self._lock:
             self._consumers.pop(ch, None)
 
+    def untapAll(self):
+        with self._lock:
+            self._consumers.clear()
+
     def _proc(self):
         while True:
             # Get next item to distribute. Close consumers when srcCh closes.
@@ -441,6 +445,11 @@ class Mix:
         with self._lock:
             self._stateMap.pop(ch, None)
             self._stateMapCh.put(dict(self._stateMap))
+
+    def unmixAll(self):
+        with self._lock:
+            self._stateMap.clear()
+            self._stateMapCh.put({})
 
     def _proc(self, toCh):
         stateMap = {}
