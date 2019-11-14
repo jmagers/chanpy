@@ -149,7 +149,15 @@ class PENDING:
     pass
 
 
+_MAX_QUEUE_SIZE = 1024
+
+
+class MaxQueueSize(Exception):
+    """Maximum pending operations exceeded"""
+
+
 class Channel:
+
     def __init__(self, deliverer):
         self._deliverer = deliverer
         self._lock = threading.Lock()
@@ -169,6 +177,8 @@ class Channel:
                 self._close()
             if unreduced(done) or not block:
                 return unreduced(done)
+            if len(self._putWaiters) >= _MAX_QUEUE_SIZE:
+                raise MaxQueueSize
             self._putWaiters[promise] = item
             return PENDING
 
@@ -183,6 +193,8 @@ class Channel:
                 self._cancelGets()
             if not block or self._isClosed:
                 return None
+            if len(self._getWaiters) >= _MAX_QUEUE_SIZE:
+                raise MaxQueueSize
             self._getWaiters[promise] = True
             return PENDING
 
