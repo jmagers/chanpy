@@ -259,8 +259,10 @@ def isChan(ch):
 
 
 def alts(ports, priority=False):
+    ports = list(ports)
+    if len(ports) == 0:
+        raise ValueError('alts must have at least one channel operation')
     if not priority:
-        ports = list(ports)
         random.shuffle(ports)
     inbox = Promise()
     requests = {}

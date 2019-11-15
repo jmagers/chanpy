@@ -335,6 +335,10 @@ class AbstractTestAlts:
             self.assertEqual(len(ch._getWaiters), 0)
             self.assertEqual(len(ch._putWaiters), 0)
 
+    def test_no_operations(self):
+        with self.assertRaises(ValueError):
+            c.alts([])
+
     def test_single_successful_get_on_initial_request(self):
         ch = self.chan()
         ontoChan(ch, ['success', 'notClosed'])
