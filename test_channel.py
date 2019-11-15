@@ -9,7 +9,7 @@ from channel import chan, ontoChan, mult, pipe, merge
 from toolz import identity
 
 
-class AbstractTestBufferedBlockingCalls:
+class AbstractTestBufferedBlocking:
     def test_unsuccessful_blocking_put_none(self):
         with self.assertRaises(TypeError):
             self.chan(1).put(None)
@@ -74,11 +74,18 @@ class AbstractTestBufferedBlockingCalls:
         self.assertEqual(list(ch), ['one', 'two'])
 
 
-class TestBlockingBufferedChannel(unittest.TestCase,
-                                  AbstractTestBufferedBlockingCalls):
+class TestBufferedBlocking(unittest.TestCase,
+                           AbstractTestBufferedBlocking):
     @staticmethod
     def chan(n):
         return c.BufferedChannel(c.FixedBuffer(n))
+
+
+class TestBufferedBlockingChan(unittest.TestCase,
+                               AbstractTestBufferedBlocking):
+    @staticmethod
+    def chan(n):
+        return c.Chan(c.FixedBuffer(n))
 
 
 class AbstractTestXform:

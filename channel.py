@@ -57,11 +57,11 @@ class FixedBuffer:
     def put(self, item):
         self._deque.append(item)
 
-    def isEmpty(self):
-        return len(self._deque) == 0
-
-    def isFull(self):
+    def is_full(self):
         return len(self._deque) >= self._maxsize
+
+    def __len__(self):
+        return len(self._deque)
 
 
 class DroppingBuffer(FixedBuffer):
@@ -69,7 +69,7 @@ class DroppingBuffer(FixedBuffer):
         if len(self._deque) < self._maxsize:
             self._deque.append(item)
 
-    def isFull(self):
+    def is_full(self):
         return False
 
 
@@ -79,7 +79,7 @@ class SlidingBuffer(FixedBuffer):
         if len(self._deque) > self._maxsize:
             self._deque.popleft()
 
-    def isFull(self):
+    def is_full(self):
         return False
 
 
@@ -113,19 +113,19 @@ class BufferedDeliverer:
         self._bufferRf = xform(multiArity(lambda: None, lambda _: None, step))
 
     def put(self, deliver, getWaiters, item):
-        if self._buffer.isFull():
+        if self._buffer.is_full():
             return False
         reduced = isReduced(self._bufferRf(None, item))
         self._deliverBufferItems(deliver, getWaiters)
         return Reduced(True) if reduced else True
 
     def get(self, deliver, putWaiters):
-        if self._buffer.isEmpty():
+        if len(self._buffer) == 0:
             return None
         getItem = self._buffer.get()
 
         # Transfer pending put items into buffer
-        while len(putWaiters) > 0 and not self._buffer.isFull():
+        while len(putWaiters) > 0 and not self._buffer.is_full():
             prom, putItem = putWaiters.popitem(last=False)
             if deliver(prom, True):
                 if isReduced(self._bufferRf(None, putItem)):
@@ -136,10 +136,10 @@ class BufferedDeliverer:
     def close(self, deliver, getWaiters):
         self._bufferRf(None)
         self._deliverBufferItems(deliver, getWaiters)
-        return self._buffer.isEmpty()
+        return len(self._buffer) == 0
 
     def _deliverBufferItems(self, deliver, getWaiters):
-        while len(getWaiters) > 0 and not self._buffer.isEmpty():
+        while len(getWaiters) > 0 and len(self._buffer) > 0:
             prom, _ = getWaiters.popitem(last=False)
             if deliver(prom, self._buffer.peek()):
                 self._buffer.get()
@@ -285,7 +285,8 @@ class FnHandler:
 
 
 class Chan:
-    def __init__(self):
+    def __init__(self, buf=None):
+        self._buf = buf
         self._takes = deque()
         self._puts = deque()
         self._is_closed = False
@@ -314,27 +315,56 @@ class Chan:
             raise TypeError('item cannot be None')
         with self._lock:
             self._cleanup()
+
             if self._is_closed:
                 return False,
 
-            while len(self._takes) > 0:
-                taker = self._takes.popleft()
-                if handler.lock_id < taker.lock_id:
+            # Attempt to transfer val into buf
+            if self._buf is not None and not self._buf.is_full():
+                try:
                     handler.acquire()
-                    taker.acquire()
-                else:
-                    taker.acquire()
-                    handler.acquire()
-                take_cb = None
-                if handler.is_active and taker.is_active:
+                    if not handler.is_active:
+                        return False,
                     handler.commit()
-                    take_cb = taker.commit()
-                handler.release()
-                taker.release()
-                if take_cb is not None:
-                    take_cb(val)
-                    return True,
+                finally:
+                    handler.release()
 
+                self._buf.put(val)
+
+                # Transfer vals from buf to takers
+                while len(self._takes) > 0 and len(self._buf) > 0:
+                    taker = self._takes.popleft()
+                    taker.acquire()
+                    taker_cb = None
+                    if taker.is_active:
+                        taker_cb = taker.commit()
+                    taker.release()
+                    if taker_cb is not None:
+                        taker_cb(self._buf.get())
+
+                return True,
+
+            # Attempt to transfer val to a taker
+            if self._buf is None:
+                while len(self._takes) > 0:
+                    taker = self._takes.popleft()
+                    if handler.lock_id < taker.lock_id:
+                        handler.acquire()
+                        taker.acquire()
+                    else:
+                        taker.acquire()
+                        handler.acquire()
+                    taker_cb = None
+                    if handler.is_active and taker.is_active:
+                        handler.commit()
+                        taker_cb = taker.commit()
+                    handler.release()
+                    taker.release()
+                    if taker_cb is not None:
+                        taker_cb(val)
+                        return True,
+
+            # Enqueue
             if len(self._puts) >= _MAX_QUEUE_SIZE:
                 raise MaxQueueSize
             self._puts.append((handler, val))
@@ -344,54 +374,87 @@ class Chan:
             self._cleanup()
 
             try:
-                while len(self._puts) > 0:
-                    putter, val = self._puts.popleft()
-                    if handler.lock_id < putter.lock_id:
+                # Attempt to take val from buf
+                if self._buf is not None and len(self._buf) > 0:
+                    try:
                         handler.acquire()
-                        putter.acquire()
-                    else:
-                        putter.acquire()
-                        handler.acquire()
-                    putter_cb = None
-                    if handler.is_active and putter.is_active:
+                        if not handler.is_active:
+                            return None,
                         handler.commit()
-                        putter_cb = putter.commit()
-                    handler.release()
-                    putter.release()
-                    if putter_cb is not None:
-                        putter_cb(True)
-                    return val,
+                    finally:
+                        handler.release()
 
-                if len(self._takes) >= _MAX_QUEUE_SIZE:
-                    raise MaxQueueSize
-                self._takes.append(handler)
+                    ret = self._buf.get()
+
+                    # Transfer vals from putters into buf
+                    while len(self._puts) > 0 and not self._buf.is_full():
+                        putter, val = self._puts.popleft()
+                        putter.acquire()
+                        putter_cb = None
+                        if putter.is_active:
+                            putter_cb = putter.commit()
+                        putter.release()
+                        if putter_cb is not None:
+                            self._buf.put(val)
+                            putter_cb(True)
+
+                    return ret,
+
+                # Attempt to take val from a putter
+                if self._buf is None:
+                    while len(self._puts) > 0:
+                        putter, val = self._puts.popleft()
+                        if handler.lock_id < putter.lock_id:
+                            handler.acquire()
+                            putter.acquire()
+                        else:
+                            putter.acquire()
+                            handler.acquire()
+                        putter_cb = None
+                        if handler.is_active and putter.is_active:
+                            handler.commit()
+                            putter_cb = putter.commit()
+                        handler.release()
+                        putter.release()
+                        if putter_cb is not None:
+                            putter_cb(True)
+                        return val,
+
+                if self._is_closed:
+                    return None,
 
             finally:
-                if self._is_closed and len(self._puts) == 0:
-                    self._cancel_takes()
+                self._cancel_takes_if_done()
+
+            # Enqueue
+            if len(self._takes) >= _MAX_QUEUE_SIZE:
+                raise MaxQueueSize
+            self._takes.append(handler)
 
     def _cleanup(self):
         self._takes = deque(h for h in self._takes if h.is_active)
         self._puts = deque((h, v) for h, v in self._puts if h.is_active)
 
-    def _cancel_takes(self):
-        for taker in self._takes:
-            taker.acquire()
-            take_cb = None
-            if taker.is_active:
-                take_cb = taker.commit()
-            taker.release()
-            if take_cb is not None:
-                take_cb(None)
-        self._takes.clear()
+    def _cancel_takes_if_done(self):
+        if (self._is_closed and
+                len(self._puts) == 0 and
+                (self._buf is None or len(self._buf) == 0)):
+            for taker in self._takes:
+                taker.acquire()
+                take_cb = None
+                if taker.is_active:
+                    take_cb = taker.commit()
+                taker.release()
+                if take_cb is not None:
+                    take_cb(None)
+            self._takes.clear()
 
     def _close(self):
         self._cleanup()
         if self._is_closed:
             return
         self._is_closed = True
-        if len(self._puts) == 0:
-            self._cancel_takes()
+        self._cancel_takes_if_done()
 
     def __iter__(self):
         while True:
