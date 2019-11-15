@@ -133,7 +133,7 @@ class TestXformBufferedChannel(unittest.TestCase, AbstractTestXform):
         return c.BufferedChannel(c.FixedBuffer(n), xform)
 
 
-class AbstractTestBufferedNonblockingCalls:
+class AbstractTestBufferedNonblocking:
     def test_unsuccessful_nonblocking_put_none(self):
         with self.assertRaises(TypeError):
             self.chan(1).put(None, block=False)
@@ -185,11 +185,18 @@ class AbstractTestBufferedNonblockingCalls:
         self.assertIs(ch.put('failure', block=False), False)
 
 
-class TestBufferedNonBlockingCalls(unittest.TestCase,
-                                   AbstractTestBufferedNonblockingCalls):
+class TestBufferedNonBlocking(unittest.TestCase,
+                              AbstractTestBufferedNonblocking):
     @staticmethod
     def chan(n):
         return c.BufferedChannel(c.FixedBuffer(n))
+
+
+class TestBufferedNonBlockingChan(unittest.TestCase,
+                                  AbstractTestBufferedNonblocking):
+    @staticmethod
+    def chan(n):
+        return c.Chan(c.FixedBuffer(n))
 
 
 class TestChan(unittest.TestCase):
@@ -293,7 +300,7 @@ class TestUnbufferedBlockingChan(unittest.TestCase,
         return c.Chan()
 
 
-class AbstractTestUnbufferedNonblockingCalls:
+class AbstractTestUnbufferedNonblocking:
     def test_unsuccessful_nonblocking_put_none(self):
         with self.assertRaises(TypeError):
             self.chan().put(None, block=False)
@@ -332,10 +339,17 @@ class AbstractTestUnbufferedNonblockingCalls:
 
 
 class TestUnbufferedNonblocking(unittest.TestCase,
-                                AbstractTestUnbufferedNonblockingCalls):
+                                AbstractTestUnbufferedNonblocking):
     @staticmethod
     def chan():
         return c.UnbufferedChannel()
+
+
+class TestUnbufferedNonblockingChan(unittest.TestCase,
+                                    AbstractTestUnbufferedNonblocking):
+    @staticmethod
+    def chan():
+        return c.Chan()
 
 
 class AbstractTestAlts:

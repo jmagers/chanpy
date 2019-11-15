@@ -292,16 +292,16 @@ class Chan:
         self._is_closed = False
         self._lock = threading.Lock()
 
-    def put(self, val):
+    def put(self, val, block=True):
         prom = _Promise()
-        ret = self._put(FnHandler(prom.deliver, True), val)
+        ret = self._put(FnHandler(prom.deliver, block), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
-    def get(self):
+    def get(self, block=True):
         prom = _Promise()
-        ret = self._get(FnHandler(prom.deliver, True))
+        ret = self._get(FnHandler(prom.deliver, block))
         if ret is not None:
             return ret[0]
         return prom.deref()
@@ -364,6 +364,9 @@ class Chan:
                         taker_cb(val)
                         return True,
 
+            if not handler.is_blockable:
+                return False,
+
             # Enqueue
             if len(self._puts) >= _MAX_QUEUE_SIZE:
                 raise MaxQueueSize
@@ -420,7 +423,7 @@ class Chan:
                             putter_cb(True)
                         return val,
 
-                if self._is_closed:
+                if self._is_closed or not handler.is_blockable:
                     return None,
 
             finally:
