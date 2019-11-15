@@ -358,11 +358,6 @@ class AbstractTestAlts:
             ontoChan(ch, ['notClosed'], close=False)
             self.assertEqual(ch.get(), 'notClosed')
 
-    def _assert_waiters_empty(self, *chs):
-        for ch in chs:
-            self.assertEqual(len(ch._getWaiters), 0)
-            self.assertEqual(len(ch._putWaiters), 0)
-
     def test_no_operations(self):
         with self.assertRaises(ValueError):
             c.alts([])
@@ -400,53 +395,6 @@ class AbstractTestAlts:
         ch = self.chan()
         with self.assertRaises(ValueError):
             c.alts([ch, [ch, 'success']], priority=True)
-
-    def test_cancel_get_without_wait_memory_leak(self):
-        ch, canceledCh = self.chan(), self.chan()
-
-        def thread():
-            ch.put('item')
-
-        threading.Thread(target=thread).start()
-        time.sleep(0.1)
-        self.assertEqual(c.alts([canceledCh, ch], priority=True), ('item', ch))
-        self._assert_waiters_empty(ch, canceledCh)
-
-    def test_cancel_get_after_wait_memory_leak(self):
-        ch, canceledCh = self.chan(), self.chan()
-
-        def thread():
-            time.sleep(0.1)
-            ch.put('item')
-
-        threading.Thread(target=thread).start()
-        self.assertEqual(c.alts([canceledCh, ch], priority=True), ('item', ch))
-        self._assert_waiters_empty(ch, canceledCh)
-
-    def test_cancel_put_without_wait_memory_leak(self):
-        ch, canceledCh = self.chan(), self.chan()
-
-        def thread():
-            ch.get()
-
-        threading.Thread(target=thread).start()
-        time.sleep(0.1)
-        self.assertEqual(c.alts([canceledCh, [ch, 'item']], priority=True),
-                         (True, ch))
-        self._assert_waiters_empty(ch, canceledCh)
-
-    def test_cancel_put_after_wait_memory_leak(self):
-        ch, canceledCh = self.chan(), self.chan()
-        ch.put('fill buffer', block=False)
-
-        def thread():
-            time.sleep(0.1)
-            ch.get()
-
-        threading.Thread(target=thread).start()
-        self.assertEqual(c.alts([canceledCh, [ch, 'item']], priority=True),
-                         (True, ch))
-        self._assert_waiters_empty(ch, canceledCh)
 
 
 class AbstractTestUnbufferedAlts(AbstractTestAlts):
@@ -749,13 +697,25 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
 
 
-class TestAltsUnbuffered(unittest.TestCase, AbstractTestUnbufferedAlts):
+class TestUnbufferedAlts(unittest.TestCase, AbstractTestUnbufferedAlts):
     @staticmethod
     def chan():
         return c.UnbufferedChannel()
 
 
-class TestAltsBuffered(unittest.TestCase, AbstractTestBufferedAlts):
+#class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
+#    @staticmethod
+#    def chan():
+#        return c.Chan()
+#
+#
+#class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
+#    @staticmethod
+#    def chan(n=1):
+#        return c.Chan(c.FixedBuffer(n))
+
+
+class TestBufferedAlts(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
     def chan(n=1, xform=identity):
         return c.BufferedChannel(c.FixedBuffer(n), xform)

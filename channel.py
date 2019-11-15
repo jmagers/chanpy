@@ -269,8 +269,8 @@ class _Promise:
 
 class FnHandler:
     def __init__(self, f, is_blockable=True):
-        self.is_blockable = is_blockable
         self._f = f
+        self.is_blockable = is_blockable
         self.lock_id = 0
         self.is_active = True
 
@@ -308,7 +308,11 @@ class Chan:
 
     def close(self):
         with self._lock:
-            self._close()
+            self._cleanup()
+            if self._is_closed:
+                return
+            self._is_closed = True
+            self._cancel_takes_if_done()
 
     def _put(self, handler, val):
         if val is None:
@@ -317,7 +321,7 @@ class Chan:
             self._cleanup()
 
             if self._is_closed:
-                return False,
+                return self._cancel_op(handler, False)
 
             # Attempt to transfer val into buf
             if self._buf is not None and not self._buf.is_full():
@@ -365,7 +369,7 @@ class Chan:
                         return True,
 
             if not handler.is_blockable:
-                return False,
+                return self._cancel_op(handler, False)
 
             # Enqueue
             if len(self._puts) >= _MAX_QUEUE_SIZE:
@@ -424,7 +428,7 @@ class Chan:
                         return val,
 
                 if self._is_closed or not handler.is_blockable:
-                    return None,
+                    return self._cancel_op(handler, None)
 
             finally:
                 self._cancel_takes_if_done()
@@ -437,6 +441,17 @@ class Chan:
     def _cleanup(self):
         self._takes = deque(h for h in self._takes if h.is_active)
         self._puts = deque((h, v) for h, v in self._puts if h.is_active)
+
+    @staticmethod
+    def _cancel_op(handler, val):
+        handler.acquire()
+        try:
+            if handler.is_active:
+                handler.commit()
+                return val,
+            return
+        finally:
+            handler.release()
 
     def _cancel_takes_if_done(self):
         if (self._is_closed and
@@ -451,13 +466,6 @@ class Chan:
                 if take_cb is not None:
                     take_cb(None)
             self._takes.clear()
-
-    def _close(self):
-        self._cleanup()
-        if self._is_closed:
-            return
-        self._is_closed = True
-        self._cancel_takes_if_done()
 
     def __iter__(self):
         while True:
@@ -521,6 +529,68 @@ def alts(ports, priority=False):
     secondResponse = inbox.get()
     cancelRequests()
     return (secondResponse['value'], secondResponse['ch'])
+
+
+class _AltHandler:
+    def __init__(self, flag, cb):
+        self._flag = flag
+        self._cb = cb
+        self.lock_id = id(flag)
+        self.is_blockable = True
+
+    @property
+    def is_active(self):
+        return self._flag['is_active']
+
+    def acquire(self):
+        self._flag['lock'].acquire()
+
+    def release(self):
+        self._flag['lock'].release()
+
+    def commit(self):
+        self._flag['is_active'] = False
+        return self._cb
+
+
+def new_alts(ports, priority=False):
+    ports = list(ports)
+    if len(ports) == 0:
+        raise ValueError('alts must have at least one channel operation')
+    if not priority:
+        random.shuffle(ports)
+
+    ops = {}
+
+    # Parse ports into ops
+    for p in ports:
+        if type(p) in [list, tuple]:
+            ch, val = p
+            op = {'type': 'put', 'value': val}
+        else:
+            ch = p
+            op = {'type': 'get'}
+        if ops.get(ch, op)['type'] != op['type']:
+            raise ValueError('cannot get and put to same channel')
+        ops[ch] = op
+
+    flag = {'lock': threading.Lock(), 'is_active': True}
+    prom = _Promise()
+
+    def create_handler(ch):
+        return _AltHandler(flag, lambda val: prom.deliver((val, ch)))
+
+    # Start ops
+    for ch, op in ops.items():
+        if op['type'] == 'get':
+            ret = ch._get(create_handler(ch))
+        elif op['type'] == 'put':
+            ret = ch._put(create_handler(ch), op['value'])
+        if ret is not None:
+            return ret[0], ch
+
+    # Wait for first op to finish
+    return prom.deref()
 
 
 def chan(buf=None, xform=None):
