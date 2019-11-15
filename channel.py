@@ -245,6 +245,162 @@ class Channel:
             yield value
 
 
+class _Promise:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._value = None
+        self._is_realized = False
+        self._realized = threading.Condition(self._lock)
+
+    def deliver(self, value):
+        with self._lock:
+            if self._is_realized:
+                return False
+            self._value = value
+            self._is_realized = True
+            self._realized.notify_all()
+            return True
+
+    def deref(self):
+        with self._lock:
+            self._realized.wait_for(lambda: self._is_realized)
+            return self._value
+
+
+class FnHandler:
+    def __init__(self, f, is_blockable=True):
+        self.is_blockable = is_blockable
+        self._f = f
+        self.lock_id = 0
+        self.is_active = True
+
+    def acquire(self):
+        pass
+
+    def release(self):
+        pass
+
+    def commit(self):
+        return self._f
+
+
+class Chan:
+    def __init__(self):
+        self._takes = deque()
+        self._puts = deque()
+        self._is_closed = False
+        self._lock = threading.Lock()
+
+    def put(self, val):
+        prom = _Promise()
+        ret = self._put(FnHandler(prom.deliver, True), val)
+        if ret is not None:
+            return ret[0]
+        return prom.deref()
+
+    def get(self):
+        prom = _Promise()
+        ret = self._get(FnHandler(prom.deliver, True))
+        if ret is not None:
+            return ret[0]
+        return prom.deref()
+
+    def close(self):
+        with self._lock:
+            self._close()
+
+    def _put(self, handler, val):
+        if val is None:
+            raise TypeError('item cannot be None')
+        with self._lock:
+            self._cleanup()
+            if self._is_closed:
+                return False,
+
+            while len(self._takes) > 0:
+                taker = self._takes.popleft()
+                if handler.lock_id < taker.lock_id:
+                    handler.acquire()
+                    taker.acquire()
+                else:
+                    taker.acquire()
+                    handler.acquire()
+                take_cb = None
+                if handler.is_active and taker.is_active:
+                    handler.commit()
+                    take_cb = taker.commit()
+                handler.release()
+                taker.release()
+                if take_cb is not None:
+                    take_cb(val)
+                    return True,
+
+            if len(self._puts) >= _MAX_QUEUE_SIZE:
+                raise MaxQueueSize
+            self._puts.append((handler, val))
+
+    def _get(self, handler):
+        with self._lock:
+            self._cleanup()
+
+            try:
+                while len(self._puts) > 0:
+                    putter, val = self._puts.popleft()
+                    if handler.lock_id < putter.lock_id:
+                        handler.acquire()
+                        putter.acquire()
+                    else:
+                        putter.acquire()
+                        handler.acquire()
+                    putter_cb = None
+                    if handler.is_active and putter.is_active:
+                        handler.commit()
+                        putter_cb = putter.commit()
+                    handler.release()
+                    putter.release()
+                    if putter_cb is not None:
+                        putter_cb(True)
+                    return val,
+
+                if len(self._takes) >= _MAX_QUEUE_SIZE:
+                    raise MaxQueueSize
+                self._takes.append(handler)
+
+            finally:
+                if self._is_closed and len(self._puts) == 0:
+                    self._cancel_takes()
+
+    def _cleanup(self):
+        self._takes = deque(h for h in self._takes if h.is_active)
+        self._puts = deque((h, v) for h, v in self._puts if h.is_active)
+
+    def _cancel_takes(self):
+        for taker in self._takes:
+            taker.acquire()
+            take_cb = None
+            if taker.is_active:
+                take_cb = taker.commit()
+            taker.release()
+            if take_cb is not None:
+                take_cb(None)
+        self._takes.clear()
+
+    def _close(self):
+        self._cleanup()
+        if self._is_closed:
+            return
+        self._is_closed = True
+        if len(self._puts) == 0:
+            self._cancel_takes()
+
+    def __iter__(self):
+        while True:
+            value = self.get()
+            if value is None:
+                break
+            yield value
+
+
 def UnbufferedChannel():
     return Channel(UnbufferedDeliverer())
 

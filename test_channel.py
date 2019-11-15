@@ -191,7 +191,7 @@ class TestChan(unittest.TestCase):
             chan(0)
 
 
-class AbstractTestUnbufferedBlockingCalls:
+class AbstractTestUnbufferedBlocking:
     def test_unsuccessful_blocking_put_none(self):
         with self.assertRaises(TypeError):
             self.chan().put(None)
@@ -272,11 +272,18 @@ class AbstractTestUnbufferedBlockingCalls:
             self.chan(None, xf.cat)
 
 
-class TestUnbufferedBlockingCalls(unittest.TestCase,
-                                  AbstractTestUnbufferedBlockingCalls):
+class TestUnbufferedBlocking(unittest.TestCase,
+                             AbstractTestUnbufferedBlocking):
     @staticmethod
     def chan():
         return c.UnbufferedChannel()
+
+
+class TestUnbufferedBlockingChan(unittest.TestCase,
+                                 AbstractTestUnbufferedBlocking):
+    @staticmethod
+    def chan():
+        return c.Chan()
 
 
 class AbstractTestUnbufferedNonblockingCalls:
