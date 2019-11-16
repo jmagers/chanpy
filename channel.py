@@ -157,6 +157,9 @@ class MaxQueueSize(Exception):
 
 
 class Channel:
+    # FIXME: Fails the following tests:
+    # test_xform_early_termination_works_after_close
+    # test_close_does_not_flush_xform_with_pending_puts
 
     def __init__(self, deliverer):
         self._deliverer = deliverer
@@ -285,12 +288,19 @@ class FnHandler:
 
 
 class Chan:
-    def __init__(self, buf=None):
+    def __init__(self, buf=None, xform=identity):
         self._buf = buf
         self._takes = deque()
         self._puts = deque()
         self._is_closed = False
+        self._xform_is_completed = False
         self._lock = threading.Lock()
+
+        def step(_, val):
+            assert val is not None
+            self._buf.put(val)
+
+        self._bufRf = xform(multiArity(lambda: None, lambda _: None, step))
 
     def put(self, val, block=True):
         prom = _Promise()
@@ -308,11 +318,7 @@ class Chan:
 
     def close(self):
         with self._lock:
-            self._cleanup()
-            if self._is_closed:
-                return
-            self._is_closed = True
-            self._cancel_takes_if_done()
+            self._close()
 
     def _put(self, handler, val):
         if val is None:
@@ -321,9 +327,9 @@ class Chan:
             self._cleanup()
 
             if self._is_closed:
-                return self._cancel_op(handler, False)
+                return self._fail_op(handler, False)
 
-            # Attempt to transfer val into buf
+            # Attempt to transfer val onto buf
             if self._buf is not None and not self._buf.is_full():
                 try:
                     handler.acquire()
@@ -333,19 +339,8 @@ class Chan:
                 finally:
                     handler.release()
 
-                self._buf.put(val)
-
-                # Transfer vals from buf to takers
-                while len(self._takes) > 0 and len(self._buf) > 0:
-                    taker = self._takes.popleft()
-                    taker.acquire()
-                    taker_cb = None
-                    if taker.is_active:
-                        taker_cb = taker.commit()
-                    taker.release()
-                    if taker_cb is not None:
-                        taker_cb(self._buf.get())
-
+                self._buf_put(val)
+                self._distribute_buf_vals()
                 return True,
 
             # Attempt to transfer val to a taker
@@ -369,7 +364,7 @@ class Chan:
                         return True,
 
             if not handler.is_blockable:
-                return self._cancel_op(handler, False)
+                return self._fail_op(handler, False)
 
             # Enqueue
             if len(self._puts) >= _MAX_QUEUE_SIZE:
@@ -380,58 +375,55 @@ class Chan:
         with self._lock:
             self._cleanup()
 
-            try:
-                # Attempt to take val from buf
-                if self._buf is not None and len(self._buf) > 0:
-                    try:
+            # Attempt to take val from buf
+            if self._buf is not None and len(self._buf) > 0:
+                try:
+                    handler.acquire()
+                    if not handler.is_active:
+                        return None,
+                    handler.commit()
+                finally:
+                    handler.release()
+
+                ret = self._buf.get()
+
+                # Transfer vals from putters onto buf
+                while len(self._puts) > 0 and not self._buf.is_full():
+                    putter, val = self._puts.popleft()
+                    putter.acquire()
+                    putter_cb = None
+                    if putter.is_active:
+                        putter_cb = putter.commit()
+                    putter.release()
+                    if putter_cb is not None:
+                        self._buf_put(val)
+                        putter_cb(True)
+
+                self._complete_xform_if_ready()
+                return ret,
+
+            # Attempt to take val from a putter
+            if self._buf is None:
+                while len(self._puts) > 0:
+                    putter, val = self._puts.popleft()
+                    if handler.lock_id < putter.lock_id:
                         handler.acquire()
-                        if not handler.is_active:
-                            return None,
-                        handler.commit()
-                    finally:
-                        handler.release()
-
-                    ret = self._buf.get()
-
-                    # Transfer vals from putters into buf
-                    while len(self._puts) > 0 and not self._buf.is_full():
-                        putter, val = self._puts.popleft()
                         putter.acquire()
-                        putter_cb = None
-                        if putter.is_active:
-                            putter_cb = putter.commit()
-                        putter.release()
-                        if putter_cb is not None:
-                            self._buf.put(val)
-                            putter_cb(True)
-
-                    return ret,
-
-                # Attempt to take val from a putter
-                if self._buf is None:
-                    while len(self._puts) > 0:
-                        putter, val = self._puts.popleft()
-                        if handler.lock_id < putter.lock_id:
-                            handler.acquire()
-                            putter.acquire()
-                        else:
-                            putter.acquire()
-                            handler.acquire()
-                        putter_cb = None
-                        if handler.is_active and putter.is_active:
-                            handler.commit()
-                            putter_cb = putter.commit()
-                        handler.release()
-                        putter.release()
-                        if putter_cb is not None:
-                            putter_cb(True)
+                    else:
+                        putter.acquire()
+                        handler.acquire()
+                    putter_cb = None
+                    if handler.is_active and putter.is_active:
+                        handler.commit()
+                        putter_cb = putter.commit()
+                    handler.release()
+                    putter.release()
+                    if putter_cb is not None:
+                        putter_cb(True)
                         return val,
 
-                if self._is_closed or not handler.is_blockable:
-                    return self._cancel_op(handler, None)
-
-            finally:
-                self._cancel_takes_if_done()
+            if self._is_closed or not handler.is_blockable:
+                return self._fail_op(handler, None)
 
             # Enqueue
             if len(self._takes) >= _MAX_QUEUE_SIZE:
@@ -443,7 +435,7 @@ class Chan:
         self._puts = deque((h, v) for h, v in self._puts if h.is_active)
 
     @staticmethod
-    def _cancel_op(handler, val):
+    def _fail_op(handler, val):
         handler.acquire()
         try:
             if handler.is_active:
@@ -453,19 +445,60 @@ class Chan:
         finally:
             handler.release()
 
-    def _cancel_takes_if_done(self):
+    def _buf_put(self, val):
+        if isReduced(self._bufRf(None, val)):
+            # If reduced value is returned then no more input is allowed onto
+            # buf. To ensure this, remove all pending puts and close ch.
+            for putter, _ in self._puts:
+                putter.acquire()
+                put_cb = None
+                if putter.is_active:
+                    put_cb = putter.commit()
+                putter.release()
+                if put_cb is not None:
+                    put_cb(False)
+            self._puts.clear()
+            self._close()
+
+    def _distribute_buf_vals(self):
+        while len(self._takes) > 0 and len(self._buf) > 0:
+            taker = self._takes.popleft()
+            taker.acquire()
+            taker_cb = None
+            if taker.is_active:
+                taker_cb = taker.commit()
+            taker.release()
+            if taker_cb is not None:
+                taker_cb(self._buf.get())
+
+    def _complete_xform_if_ready(self):
+        """Calls the xform completion arity exactly once iff all input has been
+        placed onto buf"""
         if (self._is_closed and
                 len(self._puts) == 0 and
-                (self._buf is None or len(self._buf) == 0)):
-            for taker in self._takes:
-                taker.acquire()
-                take_cb = None
-                if taker.is_active:
-                    take_cb = taker.commit()
-                taker.release()
-                if take_cb is not None:
-                    take_cb(None)
-            self._takes.clear()
+                not self._xform_is_completed):
+            self._xform_is_completed = True
+            self._bufRf(None)
+
+    def _close(self):
+        self._cleanup()
+        self._is_closed = True
+
+        if self._buf is not None:
+            self._complete_xform_if_ready()
+            self._distribute_buf_vals()
+
+        # Remove pending takes
+        # No-op if there are pending puts or buffer isn't empty
+        for taker in self._takes:
+            taker.acquire()
+            take_cb = None
+            if taker.is_active:
+                take_cb = taker.commit()
+            taker.release()
+            if take_cb is not None:
+                take_cb(None)
+        self._takes.clear()
 
     def __iter__(self):
         while True:
@@ -484,11 +517,10 @@ def BufferedChannel(buf, xform=identity):
 
 
 def isChan(ch):
-    methodNames = 'maybeGet', 'maybePut', 'get', 'put', 'close', '__iter__'
-    return all(hasattr(ch, method) for method in methodNames)
+    return isinstance(ch, Chan)
 
 
-def alts(ports, priority=False):
+def old_alts(ports, priority=False):
     ports = list(ports)
     if len(ports) == 0:
         raise ValueError('alts must have at least one channel operation')
@@ -553,7 +585,7 @@ class _AltHandler:
         return self._cb
 
 
-def new_alts(ports, priority=False):
+def alts(ports, priority=False):
     ports = list(ports)
     if len(ports) == 0:
         raise ValueError('alts must have at least one channel operation')
@@ -597,9 +629,9 @@ def chan(buf=None, xform=None):
     if buf is None:
         if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
-        return UnbufferedChannel()
+        return Chan()
     newBuf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return BufferedChannel(newBuf, identity if xform is None else xform)
+    return Chan(newBuf, identity if xform is None else xform)
 
 
 def reduce(f, init, ch):

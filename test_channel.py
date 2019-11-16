@@ -104,6 +104,21 @@ class AbstractTestXform:
         ontoChan(ch, [1, 2, 3, 4])
         self.assertEqual(list(ch), [1, 2])
 
+    def test_xform_early_termination_works_after_close(self):
+        ch = self.chan(1, xf.takeWhile(lambda x: x != 2))
+
+        ontoChan(ch, [0], close=False)
+        time.sleep(0.1)
+        ontoChan(ch, [1], close=False)
+        time.sleep(0.1)
+        ontoChan(ch, [2], close=False)
+        time.sleep(0.1)
+        ontoChan(ch, [3], close=False)
+        time.sleep(0.1)
+        ch.close()
+        self.assertEqual(list(ch), [0, 1])
+        self.assertEqual(len(ch._puts), 0)
+
     def test_xform_successful_overfilled_buffer(self):
         ch = self.chan(1, xf.cat)
         ch.put([1, 2, 3])
@@ -126,11 +141,25 @@ class AbstractTestXform:
         ch.close()
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
+    def test_close_does_not_flush_xform_with_pending_puts(self):
+        ch = self.chan(1, xf.partitionAll(2))
 
-class TestXformBufferedChannel(unittest.TestCase, AbstractTestXform):
+        ontoChan(ch, range(3))
+        time.sleep(0.1)
+        ch.close()
+        self.assertEqual(list(ch), [(0, 1), (2,)])
+
+
+#class TestXformBufferedChannel(unittest.TestCase, AbstractTestXform):
+#    @staticmethod
+#    def chan(n, xform):
+#        return c.BufferedChannel(c.FixedBuffer(n), xform)
+
+
+class TestXformBufferedChan(unittest.TestCase, AbstractTestXform):
     @staticmethod
     def chan(n, xform):
-        return c.BufferedChannel(c.FixedBuffer(n), xform)
+        return c.Chan(c.FixedBuffer(n), xform)
 
 
 class AbstractTestBufferedNonblocking:
@@ -697,28 +726,28 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
 
 
-class TestUnbufferedAlts(unittest.TestCase, AbstractTestUnbufferedAlts):
-    @staticmethod
-    def chan():
-        return c.UnbufferedChannel()
-
-
-#class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
+#class TestUnbufferedAlts(unittest.TestCase, AbstractTestUnbufferedAlts):
 #    @staticmethod
 #    def chan():
-#        return c.Chan()
-#
-#
-#class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
-#    @staticmethod
-#    def chan(n=1):
-#        return c.Chan(c.FixedBuffer(n))
+#        return c.UnbufferedChannel()
 
 
-class TestBufferedAlts(unittest.TestCase, AbstractTestBufferedAlts):
+class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
+    @staticmethod
+    def chan():
+        return c.Chan()
+
+
+class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
     def chan(n=1, xform=identity):
-        return c.BufferedChannel(c.FixedBuffer(n), xform)
+        return c.Chan(c.FixedBuffer(n), xform)
+
+
+#class TestBufferedAlts(unittest.TestCase, AbstractTestBufferedAlts):
+#    @staticmethod
+#    def chan(n=1, xform=identity):
+#        return c.BufferedChannel(c.FixedBuffer(n), xform)
 
 
 class TestDroppingBuffer(unittest.TestCase):
