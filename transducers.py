@@ -1,5 +1,5 @@
 from genericfuncs import (multiArity, reduce, ensureReduced, unreduced,
-                          isReduced)
+                          isReduced, Reduced)
 from toolz import identity, partial as prt, compose as comp
 from collections import deque
 
@@ -63,6 +63,14 @@ def take(n):
             return ensureReduced(newResult) if remaining <= 0 else newResult
 
         return multiArity(rf, rf, step)
+    return xform
+
+
+def takeWhile(f):
+    def xform(rf):
+        return multiArity(rf, rf, lambda result, val: (rf(result, val)
+                                                       if f(val)
+                                                       else Reduced(result)))
     return xform
 
 
