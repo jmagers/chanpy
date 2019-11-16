@@ -1,44 +1,8 @@
 import random
 import threading
-from collections import deque, OrderedDict
-from genericfuncs import multiArity, isReduced, Reduced, unreduced
+from collections import deque
+from genericfuncs import multiArity, isReduced
 from toolz import identity
-
-
-class Promise:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._value = None
-        self._completeStatus = None
-        self._valueSet = threading.Condition(self._lock)
-        self._complete = threading.Condition(self._lock)
-
-    def put(self, item):
-        if item is None:
-            raise TypeError('item cannot be None')
-        with self._lock:
-            if self._value is not None:
-                return False
-            self._value = item
-            self._valueSet.notify_all()
-            self._complete.wait_for(lambda: self._completeStatus is not None)
-            return self._completeStatus == 'consumed'
-
-    def get(self):
-        with self._lock:
-            self._valueSet.wait_for(lambda: (self._value is not None or
-                                             self._completeStatus is not None))
-            if self._completeStatus == 'canceled':
-                return None
-            self._completeStatus = 'consumed'
-            self._complete.notify()
-            return self._value
-
-    def close(self):
-        with self._lock:
-            self._completeStatus = self._completeStatus or 'canceled'
-            self._valueSet.notify_all()
-            self._complete.notify_all()
 
 
 class FixedBuffer:
@@ -47,9 +11,6 @@ class FixedBuffer:
             raise ValueError('maxsize must be a positive int')
         self._maxsize = maxsize
         self._deque = deque()
-
-    def peek(self):
-        return self._deque[0]
 
     def get(self):
         return self._deque.popleft()
@@ -83,172 +44,7 @@ class SlidingBuffer(FixedBuffer):
         return False
 
 
-class UnbufferedDeliverer:
-    def put(self, deliver, getWaiters, item):
-        while len(getWaiters) > 0:
-            prom, _ = getWaiters.popitem(last=False)
-            if deliver(prom, item):
-                return True
-        return False
-
-    def get(self, deliver, putWaiters):
-        while len(putWaiters) > 0:
-            prom, item = putWaiters.popitem(last=False)
-            if deliver(prom, True):
-                return item
-        return None
-
-    def close(self, deliver, getWaiters):
-        return True
-
-
-class BufferedDeliverer:
-    def __init__(self, buf, xform=identity):
-        self._buffer = buf
-
-        def step(_, val):
-            assert val is not None
-            self._buffer.put(val)
-
-        self._bufferRf = xform(multiArity(lambda: None, lambda _: None, step))
-
-    def put(self, deliver, getWaiters, item):
-        if self._buffer.is_full():
-            return False
-        reduced = isReduced(self._bufferRf(None, item))
-        self._deliverBufferItems(deliver, getWaiters)
-        return Reduced(True) if reduced else True
-
-    def get(self, deliver, putWaiters):
-        if len(self._buffer) == 0:
-            return None
-        getItem = self._buffer.get()
-
-        # Transfer pending put items into buffer
-        while len(putWaiters) > 0 and not self._buffer.is_full():
-            prom, putItem = putWaiters.popitem(last=False)
-            if deliver(prom, True):
-                if isReduced(self._bufferRf(None, putItem)):
-                    return Reduced(getItem)
-
-        return getItem
-
-    def close(self, deliver, getWaiters):
-        self._bufferRf(None)
-        self._deliverBufferItems(deliver, getWaiters)
-        return len(self._buffer) == 0
-
-    def _deliverBufferItems(self, deliver, getWaiters):
-        while len(getWaiters) > 0 and len(self._buffer) > 0:
-            prom, _ = getWaiters.popitem(last=False)
-            if deliver(prom, self._buffer.peek()):
-                self._buffer.get()
-
-
-class PENDING:
-    pass
-
-
-_MAX_QUEUE_SIZE = 1024
-
-
-class MaxQueueSize(Exception):
-    """Maximum pending operations exceeded"""
-
-
-class Channel:
-    # FIXME: Fails the following tests:
-    # test_xform_early_termination_works_after_close
-    # test_close_does_not_flush_xform_with_pending_puts
-
-    def __init__(self, deliverer):
-        self._deliverer = deliverer
-        self._lock = threading.Lock()
-        self._getWaiters = OrderedDict()
-        self._putWaiters = OrderedDict()
-        self._deliver = lambda prom, val: prom.put({'ch': self, 'value': val})
-        self._isClosed = False
-
-    def maybePut(self, promise, item, block=True):
-        if item is None:
-            raise TypeError('item cannot be None')
-        with self._lock:
-            if self._isClosed:
-                return False
-            done = self._deliverer.put(self._deliver, self._getWaiters, item)
-            if isReduced(done):
-                self._close()
-            if unreduced(done) or not block:
-                return unreduced(done)
-            if len(self._putWaiters) >= _MAX_QUEUE_SIZE:
-                raise MaxQueueSize
-            self._putWaiters[promise] = item
-            return PENDING
-
-    def maybeGet(self, promise, block=True):
-        with self._lock:
-            item = self._deliverer.get(self._deliver, self._putWaiters)
-            if isReduced(item):
-                self._close()
-            if unreduced(item) is not None:
-                return unreduced(item)
-            if self._isClosed:
-                self._cancelGets()
-            if not block or self._isClosed:
-                return None
-            if len(self._getWaiters) >= _MAX_QUEUE_SIZE:
-                raise MaxQueueSize
-            self._getWaiters[promise] = True
-            return PENDING
-
-    def cancelRequest(self, promise):
-        with self._lock:
-            self._getWaiters.pop(promise, None)
-            self._putWaiters.pop(promise, None)
-
-    def get(self, block=True):
-        return self._commitReq('get', block)
-
-    def put(self, item, block=True):
-        return self._commitReq('put', block, item)
-
-    def close(self):
-        with self._lock:
-            self._close()
-
-    def _cancelGets(self):
-        for prom in self._getWaiters.keys():
-            prom.put({'ch': self, 'value': None})
-        self._getWaiters.clear()
-
-    def _close(self):
-        if not self._isClosed:
-            if (self._deliverer.close(self._deliver, self._getWaiters) and
-                    len(self._putWaiters) == 0):
-                self._cancelGets()
-            self._isClosed = True
-
-    def _commitReq(self, reqType, block, item=None):
-        p = Promise()
-        response = (self.maybeGet(p, block)
-                    if reqType == 'get'
-                    else self.maybePut(p, item, block))
-
-        if response is not PENDING:
-            return response
-
-        secondResponse = p.get()
-        return secondResponse['value']
-
-    def __iter__(self):
-        while True:
-            value = self.get()
-            if value is None:
-                break
-            yield value
-
-
-class _Promise:
+class Promise:
     def __init__(self):
         self._lock = threading.Lock()
         self._value = None
@@ -287,6 +83,13 @@ class FnHandler:
         return self._f
 
 
+_MAX_QUEUE_SIZE = 1024
+
+
+class MaxQueueSize(Exception):
+    """Maximum pending operations exceeded"""
+
+
 class Chan:
     def __init__(self, buf=None, xform=identity):
         self._buf = buf
@@ -303,14 +106,14 @@ class Chan:
         self._bufRf = xform(multiArity(lambda: None, lambda _: None, step))
 
     def put(self, val, block=True):
-        prom = _Promise()
+        prom = Promise()
         ret = self._put(FnHandler(prom.deliver, block), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
     def get(self, block=True):
-        prom = _Promise()
+        prom = Promise()
         ret = self._get(FnHandler(prom.deliver, block))
         if ret is not None:
             return ret[0]
@@ -508,59 +311,8 @@ class Chan:
             yield value
 
 
-def UnbufferedChannel():
-    return Channel(UnbufferedDeliverer())
-
-
-def BufferedChannel(buf, xform=identity):
-    return Channel(BufferedDeliverer(buf, xform))
-
-
 def isChan(ch):
     return isinstance(ch, Chan)
-
-
-def old_alts(ports, priority=False):
-    ports = list(ports)
-    if len(ports) == 0:
-        raise ValueError('alts must have at least one channel operation')
-    if not priority:
-        random.shuffle(ports)
-    inbox = Promise()
-    requests = {}
-
-    def cancelRequests():
-        inbox.close()
-        for ch in requests.keys():
-            ch.cancelRequest(inbox)
-
-    # Parse ports into requests
-    for p in ports:
-        if type(p) in [list, tuple]:
-            ch, val = p
-            req = {'type': 'put', 'value': val}
-        else:
-            ch = p
-            req = {'type': 'get'}
-        if requests.get(ch, req)['type'] != req['type']:
-            raise ValueError('cannot get and put to same channel')
-        requests[ch] = req
-
-    # Start requests
-    for ch, req in requests.items():
-        if req['type'] == 'get':
-            response = ch.maybeGet(inbox)
-        elif req['type'] == 'put':
-            response = ch.maybePut(inbox, req['value'])
-
-        if response is not PENDING:
-            cancelRequests()
-            return (response, ch)
-
-    # Cancel requests after response
-    secondResponse = inbox.get()
-    cancelRequests()
-    return (secondResponse['value'], secondResponse['ch'])
 
 
 class _AltHandler:
@@ -607,7 +359,7 @@ def alts(ports, priority=False):
         ops[ch] = op
 
     flag = {'lock': threading.Lock(), 'is_active': True}
-    prom = _Promise()
+    prom = Promise()
 
     def create_handler(ch):
         return _AltHandler(flag, lambda val: prom.deliver((val, ch)))
