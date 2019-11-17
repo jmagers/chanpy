@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import asyncio
 import threading
 import time
 import unittest
@@ -7,6 +8,119 @@ import transducers as xf
 import channel as c
 from channel import chan, ontoChan, mult, pipe, merge
 from toolz import identity
+
+
+class TestAsync(unittest.TestCase):
+    def test_thread_put_to_async_get_without_wait(self):
+        ch = chan()
+
+        def putter():
+            ch.put('success')
+
+        async def getter():
+            await asyncio.sleep(0.1)
+            return await ch.go_get()
+
+        threading.Thread(target=putter).start()
+        self.assertEqual(c.get_event_loop().run_until_complete(getter()),
+                         'success')
+        c.get_event_loop().close()
+
+    def test_thread_get_to_async_put_after_wait(self):
+        ch = chan()
+        result = None
+
+        def getter():
+            nonlocal result
+            time.sleep(0.1)
+            result = ch.get('success')
+
+        async def putter():
+            return await ch.go_put('success')
+
+        threading.Thread(target=getter).start()
+        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
+        self.assertEqual(result, 'success')
+        c.get_event_loop().close()
+
+    def test_async_only_transfer(self):
+        ch = chan()
+        result = None
+
+        async def getter():
+            nonlocal result
+            result = await ch.go_get()
+
+        async def putter():
+            c.go(getter())
+            return await ch.go_put('success')
+
+        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
+        self.assertEqual(result, 'success')
+        c.get_event_loop().close()
+
+    def test_nonblocking_unsuccessful_get(self):
+        ch = chan()
+
+        async def getter():
+            return await ch.go_get(block=False)
+
+        self.assertIsNone(c.get_event_loop().run_until_complete(getter()))
+
+    def test_nonblocking_successful_put(self):
+        ch = chan(1)
+
+        async def putter():
+            return await ch.go_put('success', block=False)
+
+        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
+        self.assertEqual(ch.get(), 'success')
+
+    def test_go_from_different_thread(self):
+        ch = chan()
+        result = None
+
+        async def getter():
+            nonlocal result
+            result = await ch.go_get()
+
+        async def putter():
+            return await ch.go_put('success')
+
+        c.get_event_loop()
+        threading.Thread(target=lambda: c.go(getter())).start()
+        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
+        self.assertEqual(result, 'success')
+        c.get_event_loop().close()
+
+    def test_go_alts_get_no_wait(self):
+        get_ch, put_ch = chan(), chan()
+
+        async def putter():
+            await get_ch.go_put('success')
+
+        async def getter():
+            c.go(putter())
+            await asyncio.sleep(0.1)
+            return await c.go_alts([[put_ch, 'noSend'], get_ch], priority=True)
+
+        self.assertEqual(c.get_event_loop().run_until_complete(getter()),
+                         ('success', get_ch))
+
+    def test_go_alts_put_after_wait(self):
+        get_ch, put_ch = chan(), chan()
+
+        async def putter():
+            await asyncio.sleep(0.1)
+            await put_ch.go_get()
+
+        async def getter():
+            c.go(putter())
+            return await c.go_alts([[put_ch, 'success'], get_ch],
+                                   priority=True)
+
+        self.assertEqual(c.get_event_loop().run_until_complete(getter()),
+                         (True, put_ch))
 
 
 class AbstractTestBufferedBlocking:

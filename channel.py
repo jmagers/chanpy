@@ -1,3 +1,4 @@
+import asyncio
 import random
 import threading
 from collections import deque
@@ -105,6 +106,12 @@ class Chan:
 
         self._bufRf = xform(multiArity(lambda: None, lambda _: None, step))
 
+    def go_put(self, val, block=True):
+        return self._go_op(lambda h: self._put(h, val), block)
+
+    def go_get(self, block=True):
+        return self._go_op(self._get, block)
+
     def put(self, val, block=True):
         prom = Promise()
         ret = self._put(FnHandler(prom.deliver, block), val)
@@ -122,6 +129,18 @@ class Chan:
     def close(self):
         with self._lock:
             self._close()
+
+    def _go_op(self, op, block):
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+
+        def deliver(result):
+            loop.call_soon_threadsafe(lambda: future.set_result(result))
+
+        ret = op(FnHandler(deliver, block))
+        if ret is not None:
+            future.set_result(ret[0])
+        return future
 
     def _put(self, handler, val):
         if val is None:
@@ -315,6 +334,31 @@ def isChan(ch):
     return isinstance(ch, Chan)
 
 
+# Event loop globals
+_event_loop = None
+_loop_lock = threading.Lock()
+
+
+def set_event_loop(event_loop):
+    global _loop_lock, _event_loop
+    with _loop_lock:
+        assert _event_loop is None or _event_loop.is_closed()
+        _event_loop = event_loop
+
+
+def get_event_loop():
+    global _loop_lock, _event_loop
+    with _loop_lock:
+        if _event_loop is None or _event_loop.is_closed():
+            _event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_event_loop)
+        return _event_loop
+
+
+def go(coro):
+    return asyncio.run_coroutine_threadsafe(coro, _event_loop)
+
+
 class _AltHandler:
     def __init__(self, flag, cb):
         self._flag = flag
@@ -337,7 +381,7 @@ class _AltHandler:
         return self._cb
 
 
-def alts(ports, priority=False):
+def _alts(deliver, ports, priority):
     ports = list(ports)
     if len(ports) == 0:
         raise ValueError('alts must have at least one channel operation')
@@ -359,10 +403,9 @@ def alts(ports, priority=False):
         ops[ch] = op
 
     flag = {'lock': threading.Lock(), 'is_active': True}
-    prom = Promise()
 
     def create_handler(ch):
-        return _AltHandler(flag, lambda val: prom.deliver((val, ch)))
+        return _AltHandler(flag, lambda val: deliver((val, ch)))
 
     # Start ops
     for ch, op in ops.items():
@@ -373,8 +416,24 @@ def alts(ports, priority=False):
         if ret is not None:
             return ret[0], ch
 
-    # Wait for first op to finish
-    return prom.deref()
+
+def go_alts(ports, priority=False):
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+
+    def deliver(result):
+        loop.call_soon_threadsafe(lambda: future.set_result(result))
+
+    ret = _alts(deliver, ports, priority)
+    if ret is not None:
+        future.set_result(ret)
+    return future
+
+
+def alts(ports, priority=False):
+    prom = Promise()
+    ret = _alts(prom.deliver, ports, priority)
+    return prom.deref() if ret is None else ret
 
 
 def chan(buf=None, xform=None):
