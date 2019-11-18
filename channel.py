@@ -330,7 +330,7 @@ class Chan:
             yield value
 
 
-def isChan(ch):
+def is_chan(ch):
     return isinstance(ch, Chan)
 
 
@@ -441,8 +441,8 @@ def chan(buf=None, xform=None):
         if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
         return Chan()
-    newBuf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return Chan(newBuf, identity if xform is None else xform)
+    new_buf = FixedBuffer(buf) if isinstance(buf, int) else buf
+    return Chan(new_buf, identity if xform is None else xform)
 
 
 def reduce(f, init, ch):
@@ -454,23 +454,23 @@ def reduce(f, init, ch):
         result = f(result, value)
 
 
-def ontoChan(ch, coll, close=True):
-    newCh = chan()
+def onto_chan(ch, coll, close=True):
+    new_ch = chan()
 
     def thread():
         for x in coll:
             ch.t_put(x)
-        newCh.close()
+        new_ch.close()
         if close:
             ch.close()
 
     threading.Thread(target=thread, daemon=True).start()
-    return newCh
+    return new_ch
 
 
-def toChan(coll):
+def to_chan(coll):
     ch = chan()
-    ontoChan(ch, coll)
+    onto_chan(ch, coll)
     return ch
 
 
@@ -482,23 +482,23 @@ def timeout(msecs):
     return ch
 
 
-def pipe(fromCh, toCh, close=True):
-    completeCh = chan()
+def pipe(from_ch, to_ch, close=True):
+    complete_ch = chan()
 
     def thread():
         while True:
-            val = fromCh.t_get()
-            if val is None or not toCh.t_put(val):
-                completeCh.close()
+            val = from_ch.t_get()
+            if val is None or not to_ch.t_put(val):
+                complete_ch.close()
                 if close:
-                    toCh.close()
+                    to_ch.close()
                 return
     threading.Thread(target=thread, daemon=True).start()
-    return completeCh
+    return complete_ch
 
 
 def merge(chs, buf=None):
-    toCh = chan(buf)
+    to_ch = chan(buf)
 
     def thread():
         ports = set(chs)
@@ -507,11 +507,11 @@ def merge(chs, buf=None):
             if val is None:
                 ports.remove(ch)
             else:
-                toCh.t_put(val)
-        toCh.close()
+                to_ch.t_put(val)
+        to_ch.close()
 
     threading.Thread(target=thread, daemon=True).start()
-    return toCh
+    return to_ch
 
 
 class Mult:
@@ -550,13 +550,13 @@ class Mult:
 
             # Distribute item to consumers
             with self._lock:
-                remainingConsumers = set(self._consumers.keys())
-            while len(remainingConsumers) > 0:
-                stillOpen, ch = alts([ch, item] for ch in remainingConsumers)
+                remaining_consumers = set(self._consumers.keys())
+            while len(remaining_consumers) > 0:
+                stillOpen, ch = alts([ch, item] for ch in remaining_consumers)
                 if not stillOpen:
                     with self._lock:
                         self._consumers.pop(ch, None)
-                remainingConsumers.remove(ch)
+                remaining_consumers.remove(ch)
 
 
 def mult(ch):
@@ -564,88 +564,89 @@ def mult(ch):
 
 
 class Mix:
-    def __init__(self, toCh):
-        self._stateCh = chan(SlidingBuffer(1))
-        self._stateMap = {}
-        self._soloMode = 'mute'
+    def __init__(self, to_ch):
+        self._state_ch = chan(SlidingBuffer(1))
+        self._state_map = {}
+        self._solo_mode = 'mute'
         self._lock = threading.Lock()
-        threading.Thread(target=self._proc, args=[toCh], daemon=True).start()
+        threading.Thread(target=self._proc, args=[to_ch], daemon=True).start()
 
-    def toggle(self, stateMap):
+    def toggle(self, state_map):
         with self._lock:
-            for ch, state in stateMap.items():
-                if not isChan(ch):
-                    raise ValueError(f'stateMap key is not a channel: {state}')
+            for ch, state in state_map.items():
+                if not is_chan(ch):
+                    raise ValueError(f'state_map key is not a channel: '
+                                     f'{state}')
                 if not set(state.keys()).issubset({'solo', 'pause', 'mute'}):
                     raise ValueError(f'state contains invalid options: '
                                      f'{state}')
                 if not set(state.values()).issubset({True, False}):
                     raise ValueError(f'state contains non-boolean values: '
                                      f'{state}')
-            for fromCh, newState in stateMap.items():
-                originalState = self._stateMap.get(ch, {'solo': False,
-                                                        'pause': False,
-                                                        'mute': False})
-                self._stateMap[fromCh] = {**originalState, **newState}
-            self._syncState()
+            for from_ch, new_state in state_map.items():
+                original_state = self._state_map.get(ch, {'solo': False,
+                                                          'pause': False,
+                                                          'mute': False})
+                self._state_map[from_ch] = {**original_state, **new_state}
+            self._sync_state()
 
     def admix(self, ch):
         self.toggle({ch: {}})
 
     def unmix(self, ch):
         with self._lock:
-            self._stateMap.pop(ch, None)
-            self._syncState()
+            self._state_map.pop(ch, None)
+            self._sync_state()
 
-    def unmixAll(self):
+    def unmix_all(self):
         with self._lock:
-            self._stateMap.clear()
-            self._syncState()
+            self._state_map.clear()
+            self._sync_state()
 
-    def soloMode(self, mode):
+    def solo_mode(self, mode):
         with self._lock:
             if mode not in ['pause', 'mute']:
                 raise ValueError(f'solo-mode is invalid: {mode}')
-            self._soloMode = mode
-            self._syncState()
+            self._solo_mode = mode
+            self._sync_state()
 
-    def _syncState(self):
-        soloedChs, mutedChs, liveChs = set(), set(), set()
+    def _sync_state(self):
+        soloed_chs, muted_chs, live_chs = set(), set(), set()
 
-        for ch, state in self._stateMap.items():
+        for ch, state in self._state_map.items():
             if state['solo']:
-                soloedChs.add(ch)
+                soloed_chs.add(ch)
             elif state['pause']:
                 continue
             elif state['mute']:
-                mutedChs.add(ch)
+                muted_chs.add(ch)
             else:
-                liveChs.add(ch)
+                live_chs.add(ch)
 
-        if len(soloedChs) == 0:
-            self._stateCh.t_put({'liveChs': liveChs, 'mutedChs': mutedChs})
-        elif self._soloMode == 'pause':
-            self._stateCh.t_put({'liveChs': soloedChs, 'mutedChs': set()})
-        elif self._soloMode == 'mute':
-            self._stateCh.t_put({'liveChs': soloedChs,
-                                 'mutedChs': mutedChs.union(liveChs)})
+        if len(soloed_chs) == 0:
+            self._state_ch.t_put({'liveChs': live_chs, 'mutedChs': muted_chs})
+        elif self._solo_mode == 'pause':
+            self._state_ch.t_put({'liveChs': soloed_chs, 'mutedChs': set()})
+        elif self._solo_mode == 'mute':
+            self._state_ch.t_put({'liveChs': soloed_chs,
+                                 'mutedChs': muted_chs.union(live_chs)})
 
-    def _proc(self, toCh):
-        liveChs, mutedChs = set(), set()
+    def _proc(self, to_ch):
+        live_chs, muted_chs = set(), set()
         while True:
-            dataChs = list(liveChs.union(mutedChs))
-            random.shuffle(dataChs)
-            val, ch = alts([self._stateCh, *dataChs], priority=True)
-            if ch is self._stateCh:
-                liveChs, mutedChs = val['liveChs'], val['mutedChs']
+            data_chs = list(live_chs.union(muted_chs))
+            random.shuffle(data_chs)
+            val, ch = alts([self._state_ch, *data_chs], priority=True)
+            if ch is self._state_ch:
+                live_chs, muted_chs = val['liveChs'], val['mutedChs']
             elif val is None:
                 with self._lock:
-                    self._stateMap.pop(ch, None)
-                liveChs.discard(ch)
-                mutedChs.discard(ch)
-            elif ch in mutedChs:
+                    self._state_map.pop(ch, None)
+                live_chs.discard(ch)
+                muted_chs.discard(ch)
+            elif ch in muted_chs:
                 pass
-            elif not toCh.t_put(val):
+            elif not to_ch.t_put(val):
                 break
 
 

@@ -6,7 +6,7 @@ import time
 import unittest
 import transducers as xf
 import channel as c
-from channel import chan, ontoChan, mult, pipe, merge
+from channel import chan, onto_chan, mult, pipe, merge
 from toolz import identity
 
 
@@ -184,7 +184,7 @@ class AbstractTestBufferedBlocking:
 
     def test_iter(self):
         ch = self.chan(2)
-        ontoChan(ch, ['one', 'two'])
+        onto_chan(ch, ['one', 'two'])
         self.assertEqual(list(ch), ['one', 'two'])
 
 
@@ -198,29 +198,29 @@ class TestBufferedBlockingChan(unittest.TestCase,
 class AbstractTestXform:
     def test_xform_map(self):
         ch = self.chan(1, xf.map(lambda x: x + 1))
-        ontoChan(ch, [0, 1, 2])
+        onto_chan(ch, [0, 1, 2])
         self.assertEqual(list(ch), [1, 2, 3])
 
     def test_xform_filter(self):
         ch = self.chan(1, xf.filter(lambda x: x % 2 == 0))
-        ontoChan(ch, [0, 1, 2])
+        onto_chan(ch, [0, 1, 2])
         self.assertEqual(list(ch), [0, 2])
 
     def test_xform_early_termination(self):
         ch = self.chan(1, xf.take(2))
-        ontoChan(ch, [1, 2, 3, 4])
+        onto_chan(ch, [1, 2, 3, 4])
         self.assertEqual(list(ch), [1, 2])
 
     def test_xform_early_termination_works_after_close(self):
         ch = self.chan(1, xf.takeWhile(lambda x: x != 2))
 
-        ontoChan(ch, [0], close=False)
+        onto_chan(ch, [0], close=False)
         time.sleep(0.1)
-        ontoChan(ch, [1], close=False)
+        onto_chan(ch, [1], close=False)
         time.sleep(0.1)
-        ontoChan(ch, [2], close=False)
+        onto_chan(ch, [2], close=False)
         time.sleep(0.1)
-        ontoChan(ch, [3], close=False)
+        onto_chan(ch, [3], close=False)
         time.sleep(0.1)
         ch.close()
         self.assertEqual(list(ch), [0, 1])
@@ -244,14 +244,14 @@ class AbstractTestXform:
 
     def test_close_flushes_xform_buffer(self):
         ch = self.chan(3, xf.partitionAll(2))
-        ontoChan(ch, range(3))
+        onto_chan(ch, range(3))
         ch.close()
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
     def test_close_does_not_flush_xform_with_pending_puts(self):
         ch = self.chan(1, xf.partitionAll(2))
 
-        ontoChan(ch, range(3))
+        onto_chan(ch, range(3))
         time.sleep(0.1)
         ch.close()
         self.assertEqual(list(ch), [(0, 1), (2,)])
@@ -401,7 +401,7 @@ class AbstractTestUnbufferedBlocking:
 
     def test_iter(self):
         ch = self.chan()
-        ontoChan(ch, ['one', 'two'])
+        onto_chan(ch, ['one', 'two'])
         self.assertEqual(list(ch), ['one', 'two'])
 
     def test_xform_exception(self):
@@ -464,7 +464,7 @@ class TestUnbufferedNonblockingChan(unittest.TestCase,
 class AbstractTestAlts:
     def _confirm_chans_not_closed(self, *chs):
         for ch in chs:
-            ontoChan(ch, ['notClosed'], close=False)
+            onto_chan(ch, ['notClosed'], close=False)
             self.assertEqual(ch.t_get(), 'notClosed')
 
     def test_no_operations(self):
@@ -473,7 +473,7 @@ class AbstractTestAlts:
 
     def test_single_successful_get_on_initial_request(self):
         ch = self.chan()
-        ontoChan(ch, ['success', 'notClosed'])
+        onto_chan(ch, ['success', 'notClosed'])
         time.sleep(0.1)
         self.assertEqual(c.alts([ch]), ('success', ch))
         self.assertEqual(ch.t_get(), 'notClosed')
@@ -483,7 +483,7 @@ class AbstractTestAlts:
 
         def thread():
             time.sleep(0.1)
-            ontoChan(ch, ['success', 'notClosed'])
+            onto_chan(ch, ['success', 'notClosed'])
 
         threading.Thread(target=thread).start()
         self.assertEqual(c.alts([ch]), ('success', ch))
@@ -522,7 +522,7 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
         successGetCh = self.chan()
         cancelGetCh = self.chan()
         cancelPutCh = self.chan()
-        ontoChan(successGetCh, ['success'], close=False)
+        onto_chan(successGetCh, ['success'], close=False)
         time.sleep(0.1)
         self.assertEqual(c.alts([cancelGetCh,
                                  successGetCh,
@@ -802,7 +802,7 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(c.alts([ch, [xformCh, 'do not modify xform state']],
                                 priority=True),
                          ('altsValue', ch))
-        ontoChan(xformCh, ['secondTake', 'dropMe'])
+        onto_chan(xformCh, ['secondTake', 'dropMe'])
         self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
 
 
@@ -952,10 +952,10 @@ class TestMix(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.toggle({ch: {'mute': 'not a boolean'}})
 
-    def test_soloMode_exception(self):
+    def test_solo_mode_exception(self):
         m = c.mix(chan())
         with self.assertRaises(ValueError):
-            m.soloMode('invalid mode')
+            m.solo_mode('invalid mode')
 
     def test_admix(self):
         fromCh1, fromCh2, toCh = chan(), chan(), chan(1)
@@ -984,7 +984,7 @@ class TestMix(unittest.TestCase):
         self.assertIsNone(toCh.t_get(block=False))
         self.assertEqual(fromCh1.t_get(), 'remain in fromCh1')
 
-    def test_unmixAll(self):
+    def test_unmix_all(self):
         fromCh1, fromCh2, toCh = chan(1), chan(1), chan(1)
         m = c.mix(toCh)
         m.admix(fromCh1)
@@ -993,7 +993,7 @@ class TestMix(unittest.TestCase):
         self.assertEqual(toCh.t_get(), 'fromCh1')
         fromCh2.t_put('fromCh2')
         self.assertEqual(toCh.t_get(), 'fromCh2')
-        m.unmixAll()
+        m.unmix_all()
         time.sleep(0.1)
         fromCh1.t_put('ignore fromCh1 item')
         fromCh2.t_put('ignore fromCh2 item')
@@ -1060,7 +1060,7 @@ class TestMix(unittest.TestCase):
         m.toggle({soloCh1: {'solo': True},
                   soloCh2: {'solo': True},
                   nonSoloCh: {}})
-        m.soloMode('mute')
+        m.solo_mode('mute')
         soloCh1.t_put('soloCh1 not muted')
         self.assertEqual(toCh.t_get(), 'soloCh1 not muted')
         soloCh2.t_put('soloCh2 not muted')
@@ -1085,7 +1085,7 @@ class TestMix(unittest.TestCase):
         m.toggle({soloCh1: {'solo': True},
                   soloCh2: {'solo': True},
                   nonSoloCh: {}})
-        m.soloMode('pause')
+        m.solo_mode('pause')
         soloCh1.t_put('soloCh1 not paused')
         self.assertEqual(toCh.t_get(), 'soloCh1 not paused')
         soloCh2.t_put('soloCh2 not paused')
@@ -1155,7 +1155,7 @@ class TestPipe(unittest.TestCase):
     def test_pipe_copy(self):
         src, dest = chan(), chan()
         pipe(src, dest)
-        ontoChan(src, [1, 2, 3])
+        onto_chan(src, [1, 2, 3])
         self.assertEqual(list(dest), [1, 2, 3])
 
     def test_pipe_close_dest(self):
