@@ -106,20 +106,20 @@ class Chan:
 
         self._bufRf = xform(multiArity(lambda: None, lambda _: None, step))
 
-    def go_put(self, val, block=True):
-        return self._go_op(lambda h: self._put(h, val), block)
+    def a_put(self, val, block=True):
+        return self._a_op(lambda h: self._put(h, val), block)
 
-    def go_get(self, block=True):
-        return self._go_op(self._get, block)
+    def a_get(self, block=True):
+        return self._a_op(self._get, block)
 
-    def put(self, val, block=True):
+    def t_put(self, val, block=True):
         prom = Promise()
         ret = self._put(FnHandler(prom.deliver, block), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
-    def get(self, block=True):
+    def t_get(self, block=True):
         prom = Promise()
         ret = self._get(FnHandler(prom.deliver, block))
         if ret is not None:
@@ -130,7 +130,7 @@ class Chan:
         with self._lock:
             self._close()
 
-    def _go_op(self, op, block):
+    def _a_op(self, op, block):
         loop = asyncio.get_running_loop()
         future = loop.create_future()
 
@@ -324,7 +324,7 @@ class Chan:
 
     def __iter__(self):
         while True:
-            value = self.get()
+            value = self.t_get()
             if value is None:
                 break
             yield value
@@ -417,7 +417,7 @@ def _alts(deliver, ports, priority):
             return ret[0], ch
 
 
-def go_alts(ports, priority=False):
+def a_alts(ports, priority=False):
     loop = asyncio.get_running_loop()
     future = loop.create_future()
 
@@ -448,7 +448,7 @@ def chan(buf=None, xform=None):
 def reduce(f, init, ch):
     result = init
     while True:
-        value = ch.get()
+        value = ch.t_get()
         if value is None:
             return result
         result = f(result, value)
@@ -459,7 +459,7 @@ def ontoChan(ch, coll, close=True):
 
     def thread():
         for x in coll:
-            ch.put(x)
+            ch.t_put(x)
         newCh.close()
         if close:
             ch.close()
@@ -487,8 +487,8 @@ def pipe(fromCh, toCh, close=True):
 
     def thread():
         while True:
-            val = fromCh.get()
-            if val is None or not toCh.put(val):
+            val = fromCh.t_get()
+            if val is None or not toCh.t_put(val):
                 completeCh.close()
                 if close:
                     toCh.close()
@@ -507,7 +507,7 @@ def merge(chs, buf=None):
             if val is None:
                 ports.remove(ch)
             else:
-                toCh.put(val)
+                toCh.t_put(val)
         toCh.close()
 
     threading.Thread(target=thread, daemon=True).start()
@@ -539,7 +539,7 @@ class Mult:
     def _proc(self):
         while True:
             # Get next item to distribute. Close consumers when srcCh closes.
-            item = self._srcCh.get()
+            item = self._srcCh.t_get()
             if item is None:
                 with self._lock:
                     self._isClosed = True
@@ -623,12 +623,12 @@ class Mix:
                 liveChs.add(ch)
 
         if len(soloedChs) == 0:
-            self._stateCh.put({'liveChs': liveChs, 'mutedChs': mutedChs})
+            self._stateCh.t_put({'liveChs': liveChs, 'mutedChs': mutedChs})
         elif self._soloMode == 'pause':
-            self._stateCh.put({'liveChs': soloedChs, 'mutedChs': set()})
+            self._stateCh.t_put({'liveChs': soloedChs, 'mutedChs': set()})
         elif self._soloMode == 'mute':
-            self._stateCh.put({'liveChs': soloedChs,
-                               'mutedChs': mutedChs.union(liveChs)})
+            self._stateCh.t_put({'liveChs': soloedChs,
+                                 'mutedChs': mutedChs.union(liveChs)})
 
     def _proc(self, toCh):
         liveChs, mutedChs = set(), set()
@@ -645,7 +645,7 @@ class Mix:
                 mutedChs.discard(ch)
             elif ch in mutedChs:
                 pass
-            elif not toCh.put(val):
+            elif not toCh.t_put(val):
                 break
 
 
