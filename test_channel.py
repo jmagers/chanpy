@@ -12,86 +12,77 @@ from toolz import identity
 
 class TestAsync(unittest.TestCase):
     def test_thread_put_to_async_get_without_wait(self):
-        ch = chan()
-
-        def putter():
+        def putter(ch):
             ch.t_put('success')
 
-        async def getter():
-            await asyncio.sleep(0.1)
+        async def main():
+            ch = chan()
+            threading.Thread(target=putter, args=[ch]).start()
             return await ch.a_get()
 
-        threading.Thread(target=putter).start()
-        self.assertEqual(c.get_event_loop().run_until_complete(getter()),
-                         'success')
-        c.get_event_loop().close()
+        self.assertEqual(asyncio.run(main()), 'success')
 
     def test_thread_get_to_async_put_after_wait(self):
-        ch = chan()
         result = None
 
-        def getter():
+        def getter(ch):
             nonlocal result
-            time.sleep(0.1)
             result = ch.t_get('success')
 
-        async def putter():
-            return await ch.a_put('success')
+        async def main():
+            ch = chan()
+            getter_thread = threading.Thread(target=getter, args=[ch])
+            getter_thread.start()
+            self.assertIs(await ch.a_put('success'), True)
+            getter_thread.join()
+            self.assertEqual(result, 'success')
 
-        threading.Thread(target=getter).start()
-        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
-        self.assertEqual(result, 'success')
-        c.get_event_loop().close()
+        asyncio.run(main())
 
     def test_async_only_transfer(self):
-        ch = chan()
-        result = None
+        async def getter(ch):
+            return await ch.a_get()
 
-        async def getter():
-            nonlocal result
-            result = await ch.a_get()
+        async def main():
+            ch = chan()
+            go = c.Go()
+            getter_task = go.start(getter(ch))
+            self.assertIs(await ch.a_put('success'), True)
+            self.assertEqual(await getter_task, 'success')
 
-        async def putter():
-            c.go(getter())
-            return await ch.a_put('success')
-
-        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
-        self.assertEqual(result, 'success')
-        c.get_event_loop().close()
+        asyncio.run(main())
 
     def test_nonblocking_unsuccessful_get(self):
-        ch = chan()
+        async def main():
+            ch = chan()
+            self.assertIsNone(await ch.a_get(block=False))
 
-        async def getter():
-            return await ch.a_get(block=False)
-
-        self.assertIsNone(c.get_event_loop().run_until_complete(getter()))
+        asyncio.run(main())
 
     def test_nonblocking_successful_put(self):
         ch = chan(1)
 
-        async def putter():
+        async def main():
             return await ch.a_put('success', block=False)
 
-        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
+        self.assertIs(asyncio.run(main()), True)
         self.assertEqual(ch.t_get(), 'success')
 
     def test_go_from_different_thread(self):
-        ch = chan()
-        result = None
+        def getter_thread(go, ch):
+            async def getter():
+                return await ch.a_get()
 
-        async def getter():
-            nonlocal result
-            result = await ch.a_get()
+            return go.start(getter()).result()
 
-        async def putter():
-            return await ch.a_put('success')
+        async def main():
+            go = c.Go()
+            ch = chan()
+            thread_result_ch = c.thread_call(lambda: getter_thread(go, ch))
+            self.assertIs(await ch.a_put('success'), True)
+            self.assertEqual(await thread_result_ch.a_get(), 'success')
 
-        c.get_event_loop()
-        threading.Thread(target=lambda: c.go(getter())).start()
-        self.assertIs(c.get_event_loop().run_until_complete(putter()), True)
-        self.assertEqual(result, 'success')
-        c.get_event_loop().close()
+        asyncio.run(main())
 
     def test_a_alts_get_no_wait(self):
         get_ch, put_ch = chan(), chan()
@@ -99,13 +90,12 @@ class TestAsync(unittest.TestCase):
         async def putter():
             await get_ch.a_put('success')
 
-        async def getter():
-            c.go(putter())
+        async def main():
+            c.Go().start(putter())
             await asyncio.sleep(0.1)
             return await c.a_alts([[put_ch, 'noSend'], get_ch], priority=True)
 
-        self.assertEqual(c.get_event_loop().run_until_complete(getter()),
-                         ('success', get_ch))
+        self.assertEqual(asyncio.run(main()), ('success', get_ch))
 
     def test_a_alts_put_after_wait(self):
         get_ch, put_ch = chan(), chan()
@@ -114,13 +104,11 @@ class TestAsync(unittest.TestCase):
             await asyncio.sleep(0.1)
             await put_ch.a_get()
 
-        async def getter():
-            c.go(putter())
-            return await c.a_alts([[put_ch, 'success'], get_ch],
-                                  priority=True)
+        async def main():
+            c.Go().start(putter())
+            return await c.a_alts([[put_ch, 'success'], get_ch], priority=True)
 
-        self.assertEqual(c.get_event_loop().run_until_complete(getter()),
-                         (True, put_ch))
+        self.assertEqual(asyncio.run(main()), (True, put_ch))
 
 
 class AbstractTestBufferedBlocking:

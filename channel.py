@@ -335,29 +335,13 @@ def is_chan(ch):
     return isinstance(ch, Chan)
 
 
-# Event loop globals
-_event_loop = None
-_loop_lock = threading.Lock()
-
-
-def set_event_loop(event_loop):
-    global _loop_lock, _event_loop
-    with _loop_lock:
-        assert _event_loop is None or _event_loop.is_closed()
-        _event_loop = event_loop
-
-
-def get_event_loop():
-    global _loop_lock, _event_loop
-    with _loop_lock:
-        if _event_loop is None or _event_loop.is_closed():
-            _event_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(_event_loop)
-        return _event_loop
-
-
-def go(coro):
-    return asyncio.run_coroutine_threadsafe(coro, _event_loop)
+def chan(buf=None, xform=None):
+    if buf is None:
+        if xform is not None:
+            raise TypeError('unbuffered channels cannot have an xform')
+        return Chan()
+    new_buf = FixedBuffer(buf) if isinstance(buf, int) else buf
+    return Chan(new_buf, identity if xform is None else xform)
 
 
 class _AltHandler:
@@ -437,15 +421,8 @@ def t_alts(ports, priority=False):
     return prom.deref() if ret is None else ret
 
 
-def chan(buf=None, xform=None):
-    if buf is None:
-        if xform is not None:
-            raise TypeError('unbuffered channels cannot have an xform')
-        return Chan()
-    new_buf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return Chan(new_buf, identity if xform is None else xform)
-
-
+# FIXME: reduce should not block, it should return a ch containing the result
+# TODO: create tests
 def reduce(f, init, ch):
     result = init
     while True:
@@ -453,6 +430,30 @@ def reduce(f, init, ch):
         if value is None:
             return result
         result = f(result, value)
+
+
+def thread_call(f):
+    ch = chan(1)
+
+    def wrapper():
+        ch.t_put(f())
+        ch.close()
+
+    threading.Thread(target=wrapper).start()
+    return ch
+
+
+class Go:
+    def __init__(self):
+        self._loop = asyncio.get_running_loop()
+
+    def start(self, coro):
+        try:
+            if asyncio.get_running_loop() is self._loop:
+                return asyncio.create_task(coro)
+        except RuntimeError:
+            pass
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
 
 def onto_chan(ch, coll, close=True):
