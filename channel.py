@@ -510,30 +510,18 @@ def to_chan(go, coll):
     return ch
 
 
-async def a_list(ch):
-    return [x async for x in ch]
-
-
-def timeout(msecs):
-    ch = chan()
-    timer = threading.Timer(msecs / 1000, ch.close)
-    timer.daemon = True
-    timer.start()
-    return ch
-
-
-def pipe(from_ch, to_ch, close=True):
+def pipe(go, from_ch, to_ch, close=True):
     complete_ch = chan()
 
-    def thread():
-        while True:
-            val = from_ch.t_get()
-            if val is None or not to_ch.t_put(val):
-                complete_ch.close()
-                if close:
-                    to_ch.close()
-                return
-    threading.Thread(target=thread, daemon=True).start()
+    async def proc():
+        async for val in from_ch:
+            if not await to_ch.a_put(val):
+                break
+        complete_ch.close()
+        if close:
+            to_ch.close()
+
+    go(proc())
     return complete_ch
 
 
@@ -552,6 +540,18 @@ def merge(go, chs, buf=None):
 
     go(proc())
     return to_ch
+
+
+def timeout(msecs):
+    ch = chan()
+    timer = threading.Timer(msecs / 1000, ch.close)
+    timer.daemon = True
+    timer.start()
+    return ch
+
+
+async def a_list(ch):
+    return [x async for x in ch]
 
 
 class Mult:

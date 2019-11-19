@@ -6,7 +6,7 @@ import time
 import unittest
 import transducers as xf
 import channel as c
-from channel import chan, mult, pipe
+from channel import chan, mult
 from toolz import identity
 
 
@@ -1155,40 +1155,63 @@ class TestMix(unittest.TestCase):
 
 class TestPipe(unittest.TestCase):
     def test_pipe_copy(self):
-        src, dest = chan(), chan()
-        pipe(src, dest)
-        c.async_put(src, 1)
-        c.async_put(src, 2)
-        src.close()
-        self.assertEqual(list(dest), [1, 2])
+        async def main():
+            src, dest = chan(), chan()
+            go = c.Go()
+            c.pipe(go, src, dest)
+            c.async_put(src, 1)
+            c.async_put(src, 2)
+            src.close()
+            self.assertEqual(await c.a_list(dest), [1, 2])
+
+        asyncio.run(main())
 
     def test_pipe_close_dest(self):
-        src, dest = chan(), chan()
-        pipe(src, dest)
-        src.close()
-        self.assertIsNone(dest.t_get())
+        async def main():
+            src, dest = chan(), chan()
+            go = c.Go()
+            c.pipe(go, src, dest)
+            src.close()
+            self.assertIsNone(await dest.a_get())
+
+        asyncio.run(main())
+
+    def test_complete_ch(self):
+        async def main():
+            src, dest = chan(), chan()
+            go = c.Go()
+            complete_ch = c.pipe(go, src, dest)
+            src.close()
+            self.assertIsNone(await complete_ch.a_get())
+
+        asyncio.run(main())
 
     def test_pipe_no_close_dest(self):
-        src, dest = chan(), chan(1)
-        pipe(src, dest, close=False)
-        src.close()
-        time.sleep(0.1)
-        dest.t_put('success')
-        self.assertEqual(dest.t_get(), 'success')
+        async def main():
+            src, dest = chan(), chan(1)
+            go = c.Go()
+            complete_ch = c.pipe(go, src, dest, close=False)
+            src.close()
+            complete_ch.get()
+            dest.a_put('success')
+            self.assertEqual(await dest.a_get(), 'success')
 
     def test_stop_consuming_when_dest_closes(self):
-        src, dest = chan(3), chan(1)
-        src.t_put('intoDest1')
-        src.t_put('intoDest2')
-        src.t_put('dropMe')
-        pipe(src, dest)
-        time.sleep(0.1)
-        dest.close()
-        self.assertEqual(dest.t_get(), 'intoDest1')
-        self.assertEqual(dest.t_get(), 'intoDest2')
-        self.assertIsNone(dest.t_get())
-        time.sleep(0.1)
-        self.assertIsNone(src.t_get(block=False))
+        async def main():
+            src, dest = chan(3), chan(1)
+            go = c.Go()
+            c.onto_chan(go, src, ['intoDest1', 'intoDest2', 'dropMe'],
+                        close=False)
+            c.pipe(go, src, dest)
+            await asyncio.sleep(0.1)
+            dest.close()
+            self.assertEqual(await dest.a_get(), 'intoDest1')
+            self.assertEqual(await dest.a_get(), 'intoDest2')
+            self.assertIsNone(await dest.a_get())
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await src.a_get(block=False))
+
+        asyncio.run(main())
 
 
 class TestMerge(unittest.TestCase):
