@@ -439,6 +439,18 @@ def reduce(f, init, ch):
         result = f(result, value)
 
 
+def async_put(port, val, f=lambda _: None, on_caller=True):
+    ret = port._put(FnHandler(f), val)
+    if ret is None:
+        return True
+    if on_caller:
+        return f(ret[0])
+    return ret[0]
+
+
+# TODO: Create async_get
+
+
 def thread_call(f):
     ch = chan(1)
 
@@ -462,41 +474,29 @@ class Go:
             pass
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
-    def merge(self, chs, buf=None):
-        to_ch = chan(buf)
 
-        async def proc():
-            ports = set(chs)
-            while len(ports) > 0:
-                val, ch = await a_alts(ports)
-                if val is None:
-                    ports.remove(ch)
-                else:
-                    await to_ch.a_put(val)
-            to_ch.close()
+def onto_chan(go, ch, coll, close=True):
+    close_ch = chan()
 
-        self.start(proc())
-        return to_ch
-
-
-def onto_chan(ch, coll, close=True):
-    new_ch = chan()
-
-    def thread():
+    async def proc():
         for x in coll:
-            ch.t_put(x)
-        new_ch.close()
+            await ch.a_put(x)
+        close_ch.close()
         if close:
             ch.close()
 
-    threading.Thread(target=thread, daemon=True).start()
-    return new_ch
+    go.start(proc())
+    return close_ch
 
 
 def to_chan(coll):
     ch = chan()
     onto_chan(ch, coll)
     return ch
+
+
+async def a_list(ch):
+    return [x async for x in ch]
 
 
 def timeout(msecs):
@@ -520,6 +520,23 @@ def pipe(from_ch, to_ch, close=True):
                 return
     threading.Thread(target=thread, daemon=True).start()
     return complete_ch
+
+
+def merge(go, chs, buf=None):
+    to_ch = chan(buf)
+
+    async def proc():
+        ports = set(chs)
+        while len(ports) > 0:
+            val, ch = await a_alts(ports)
+            if val is None:
+                ports.remove(ch)
+            else:
+                await to_ch.a_put(val)
+        to_ch.close()
+
+    go.start(proc())
+    return to_ch
 
 
 class Mult:

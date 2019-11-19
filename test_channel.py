@@ -6,7 +6,7 @@ import time
 import unittest
 import transducers as xf
 import channel as c
-from channel import chan, onto_chan, mult, pipe
+from channel import chan, mult, pipe
 from toolz import identity
 
 
@@ -172,7 +172,9 @@ class AbstractTestBufferedBlocking:
 
     def test_iter(self):
         ch = self.chan(2)
-        onto_chan(ch, ['one', 'two'])
+        ch.t_put('one')
+        ch.t_put('two')
+        ch.close()
         self.assertEqual(list(ch), ['one', 'two'])
 
 
@@ -185,34 +187,39 @@ class TestBufferedBlockingChan(unittest.TestCase,
 
 class AbstractTestXform:
     def test_xform_map(self):
-        ch = self.chan(1, xf.map(lambda x: x + 1))
-        onto_chan(ch, [0, 1, 2])
-        self.assertEqual(list(ch), [1, 2, 3])
+        async def main():
+            ch = self.chan(1, xf.map(lambda x: x + 1))
+            c.onto_chan(c.Go(), ch, [0, 1, 2])
+            self.assertEqual(await c.a_list(ch), [1, 2, 3])
+
+        asyncio.run(main())
 
     def test_xform_filter(self):
-        ch = self.chan(1, xf.filter(lambda x: x % 2 == 0))
-        onto_chan(ch, [0, 1, 2])
-        self.assertEqual(list(ch), [0, 2])
+        async def main():
+            ch = self.chan(1, xf.filter(lambda x: x % 2 == 0))
+            c.onto_chan(c.Go(), ch, [0, 1, 2])
+            self.assertEqual(await c.a_list(ch), [0, 2])
+
+        asyncio.run(main())
 
     def test_xform_early_termination(self):
-        ch = self.chan(1, xf.take(2))
-        onto_chan(ch, [1, 2, 3, 4])
-        self.assertEqual(list(ch), [1, 2])
+        async def main():
+            ch = self.chan(1, xf.take(2))
+            c.onto_chan(c.Go(), ch, [1, 2, 3, 4])
+            self.assertEqual(await c.a_list(ch), [1, 2])
+
+        asyncio.run(main())
 
     def test_xform_early_termination_works_after_close(self):
-        ch = self.chan(1, xf.takeWhile(lambda x: x != 2))
+        async def main():
+            ch = self.chan(1, xf.takeWhile(lambda x: x != 2))
+            for i in range(4):
+                c.async_put(ch, i)
+            ch.close()
+            self.assertEqual(await c.a_list(ch), [0, 1])
+            self.assertEqual(len(ch._puts), 0)
 
-        onto_chan(ch, [0], close=False)
-        time.sleep(0.1)
-        onto_chan(ch, [1], close=False)
-        time.sleep(0.1)
-        onto_chan(ch, [2], close=False)
-        time.sleep(0.1)
-        onto_chan(ch, [3], close=False)
-        time.sleep(0.1)
-        ch.close()
-        self.assertEqual(list(ch), [0, 1])
-        self.assertEqual(len(ch._puts), 0)
+        asyncio.run(main())
 
     def test_xform_successful_overfilled_buffer(self):
         ch = self.chan(1, xf.cat)
@@ -232,15 +239,15 @@ class AbstractTestXform:
 
     def test_close_flushes_xform_buffer(self):
         ch = self.chan(3, xf.partitionAll(2))
-        onto_chan(ch, range(3))
+        for i in range(3):
+            ch.t_put(i)
         ch.close()
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
     def test_close_does_not_flush_xform_with_pending_puts(self):
         ch = self.chan(1, xf.partitionAll(2))
-
-        onto_chan(ch, range(3))
-        time.sleep(0.1)
+        for i in range(3):
+            c.async_put(ch, i)
         ch.close()
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
@@ -389,7 +396,9 @@ class AbstractTestUnbufferedBlocking:
 
     def test_iter(self):
         ch = self.chan()
-        onto_chan(ch, ['one', 'two'])
+        c.async_put(ch, 'one')
+        c.async_put(ch, 'two')
+        ch.close()
         self.assertEqual(list(ch), ['one', 'two'])
 
     def test_xform_exception(self):
@@ -452,7 +461,7 @@ class TestUnbufferedNonblockingChan(unittest.TestCase,
 class AbstractTestAlts:
     def _confirm_chans_not_closed(self, *chs):
         for ch in chs:
-            onto_chan(ch, ['notClosed'], close=False)
+            c.async_put(ch, 'notClosed')
             self.assertEqual(ch.t_get(), 'notClosed')
 
     def test_no_operations(self):
@@ -461,8 +470,8 @@ class AbstractTestAlts:
 
     def test_single_successful_get_on_initial_request(self):
         ch = self.chan()
-        onto_chan(ch, ['success', 'notClosed'])
-        time.sleep(0.1)
+        c.async_put(ch, 'success')
+        c.async_put(ch, 'notClosed')
         self.assertEqual(c.t_alts([ch]), ('success', ch))
         self.assertEqual(ch.t_get(), 'notClosed')
 
@@ -471,7 +480,8 @@ class AbstractTestAlts:
 
         def thread():
             time.sleep(0.1)
-            onto_chan(ch, ['success', 'notClosed'])
+            c.async_put(ch, 'success')
+            c.async_put(ch, 'notClosed')
 
         threading.Thread(target=thread).start()
         self.assertEqual(c.t_alts([ch]), ('success', ch))
@@ -510,7 +520,7 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
         successGetCh = self.chan()
         cancelGetCh = self.chan()
         cancelPutCh = self.chan()
-        onto_chan(successGetCh, ['success'], close=False)
+        c.async_put(successGetCh, 'success')
         time.sleep(0.1)
         self.assertEqual(c.t_alts([cancelGetCh,
                                   successGetCh,
@@ -793,7 +803,8 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(c.t_alts([ch, [xformCh, 'do not modify xform state']],
                                   priority=True),
                          ('altsValue', ch))
-        onto_chan(xformCh, ['secondTake', 'dropMe'])
+        c.async_put(xformCh, 'secondTake')
+        c.async_put(xformCh, 'dropMe')
         self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
 
 
@@ -1146,8 +1157,10 @@ class TestPipe(unittest.TestCase):
     def test_pipe_copy(self):
         src, dest = chan(), chan()
         pipe(src, dest)
-        onto_chan(src, [1, 2, 3])
-        self.assertEqual(list(dest), [1, 2, 3])
+        c.async_put(src, 1)
+        c.async_put(src, 2)
+        src.close()
+        self.assertEqual(list(dest), [1, 2])
 
     def test_pipe_close_dest(self):
         src, dest = chan(), chan()
@@ -1183,7 +1196,7 @@ class TestMerge(unittest.TestCase):
         async def main():
             go = c.Go()
             src1, src2 = chan(), chan()
-            m = go.merge([src1, src2], 2)
+            m = c.merge(go, [src1, src2], 2)
             await src1.a_put('src1')
             await src2.a_put('src2')
             src1.close()
