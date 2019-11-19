@@ -330,6 +330,13 @@ class Chan:
                 break
             yield value
 
+    async def __aiter__(self):
+        while True:
+            value = await self.a_get()
+            if value is None:
+                break
+            yield value
+
 
 def is_chan(ch):
     return isinstance(ch, Chan)
@@ -455,6 +462,22 @@ class Go:
             pass
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
+    def merge(self, chs, buf=None):
+        to_ch = chan(buf)
+
+        async def proc():
+            ports = set(chs)
+            while len(ports) > 0:
+                val, ch = await a_alts(ports)
+                if val is None:
+                    ports.remove(ch)
+                else:
+                    await to_ch.a_put(val)
+            to_ch.close()
+
+        self.start(proc())
+        return to_ch
+
 
 def onto_chan(ch, coll, close=True):
     new_ch = chan()
@@ -497,23 +520,6 @@ def pipe(from_ch, to_ch, close=True):
                 return
     threading.Thread(target=thread, daemon=True).start()
     return complete_ch
-
-
-def merge(chs, buf=None):
-    to_ch = chan(buf)
-
-    def thread():
-        ports = set(chs)
-        while len(ports) > 0:
-            val, ch = t_alts(ports)
-            if val is None:
-                ports.remove(ch)
-            else:
-                to_ch.t_put(val)
-        to_ch.close()
-
-    threading.Thread(target=thread, daemon=True).start()
-    return to_ch
 
 
 class Mult:

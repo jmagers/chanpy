@@ -6,7 +6,7 @@ import time
 import unittest
 import transducers as xf
 import channel as c
-from channel import chan, onto_chan, mult, pipe, merge
+from channel import chan, onto_chan, mult, pipe
 from toolz import identity
 
 
@@ -1180,13 +1180,17 @@ class TestPipe(unittest.TestCase):
 
 class TestMerge(unittest.TestCase):
     def test_merge(self):
-        src1, src2 = chan(), chan()
-        m = merge([src1, src2], 2)
-        src1.t_put('src1')
-        src2.t_put('src2')
-        src1.close()
-        src2.close()
-        self.assertEqual(list(m), ['src1', 'src2'])
+        async def main():
+            go = c.Go()
+            src1, src2 = chan(), chan()
+            m = go.merge([src1, src2], 2)
+            await src1.a_put('src1')
+            await src2.a_put('src2')
+            src1.close()
+            src2.close()
+            self.assertEqual([x async for x in m], ['src1', 'src2'])
+
+        asyncio.run(main())
 
 
 if __name__ == '__main__':
