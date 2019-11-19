@@ -466,13 +466,28 @@ class Go:
     def __init__(self):
         self._loop = asyncio.get_running_loop()
 
-    def start(self, coro):
+    def __call__(self, coro, daemon=False):
         try:
-            if asyncio.get_running_loop() is self._loop:
-                return asyncio.create_task(coro)
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            pass
-        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+            loop = None
+
+        if loop is self._loop:
+            asyncio.create_task(coro)
+        else:
+            asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+        # TODO: Add daemon feature
+
+    def get(self, coro):
+        ch = chan(1)
+
+        async def wrapper():
+            await ch.a_put(await coro)
+            ch.close()
+
+        self(wrapper())
+        return ch
 
 
 def onto_chan(go, ch, coll, close=True):
@@ -485,13 +500,13 @@ def onto_chan(go, ch, coll, close=True):
         if close:
             ch.close()
 
-    go.start(proc())
+    go(proc())
     return close_ch
 
 
-def to_chan(coll):
+def to_chan(go, coll):
     ch = chan()
-    onto_chan(ch, coll)
+    onto_chan(go, ch, coll)
     return ch
 
 
@@ -535,7 +550,7 @@ def merge(go, chs, buf=None):
                 await to_ch.a_put(val)
         to_ch.close()
 
-    go.start(proc())
+    go(proc())
     return to_ch
 
 

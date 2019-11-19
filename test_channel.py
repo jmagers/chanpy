@@ -46,9 +46,9 @@ class TestAsync(unittest.TestCase):
         async def main():
             ch = chan()
             go = c.Go()
-            getter_task = go.start(getter(ch))
+            get_ch = go.get(getter(ch))
             self.assertIs(await ch.a_put('success'), True)
-            self.assertEqual(await getter_task, 'success')
+            self.assertEqual(await get_ch.a_get(), 'success')
 
         asyncio.run(main())
 
@@ -73,7 +73,7 @@ class TestAsync(unittest.TestCase):
             async def getter():
                 return await ch.a_get()
 
-            return go.start(getter()).result()
+            return go.get(getter()).t_get()
 
         async def main():
             go = c.Go()
@@ -91,7 +91,7 @@ class TestAsync(unittest.TestCase):
             await get_ch.a_put('success')
 
         async def main():
-            c.Go().start(putter())
+            c.Go()(putter())
             await asyncio.sleep(0.1)
             return await c.a_alts([[put_ch, 'noSend'], get_ch], priority=True)
 
@@ -105,7 +105,7 @@ class TestAsync(unittest.TestCase):
             await put_ch.a_get()
 
         async def main():
-            c.Go().start(putter())
+            c.Go()(putter())
             return await c.a_alts([[put_ch, 'success'], get_ch], priority=True)
 
         self.assertEqual(asyncio.run(main()), (True, put_ch))
