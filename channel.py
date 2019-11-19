@@ -130,7 +130,8 @@ class Chan:
         with self._lock:
             self._close()
 
-    def _a_op(self, op, block):
+    @staticmethod
+    def _a_op(op, block):
         loop = asyncio.get_running_loop()
         future = loop.create_future()
 
@@ -430,7 +431,7 @@ def a_alts(ports, priority=False):
     return future
 
 
-def alts(ports, priority=False):
+def t_alts(ports, priority=False):
     prom = Promise()
     ret = _alts(prom.deliver, ports, priority)
     return prom.deref() if ret is None else ret
@@ -503,7 +504,7 @@ def merge(chs, buf=None):
     def thread():
         ports = set(chs)
         while len(ports) > 0:
-            val, ch = alts(ports)
+            val, ch = t_alts(ports)
             if val is None:
                 ports.remove(ch)
             else:
@@ -550,13 +551,13 @@ class Mult:
 
             # Distribute item to consumers
             with self._lock:
-                remaining_consumers = set(self._consumers.keys())
-            while len(remaining_consumers) > 0:
-                stillOpen, ch = alts([ch, item] for ch in remaining_consumers)
+                remaining_chs = set(self._consumers.keys())
+            while len(remaining_chs) > 0:
+                stillOpen, ch = t_alts([ch, item] for ch in remaining_chs)
                 if not stillOpen:
                     with self._lock:
                         self._consumers.pop(ch, None)
-                remaining_consumers.remove(ch)
+                remaining_chs.remove(ch)
 
 
 def mult(ch):
@@ -636,7 +637,7 @@ class Mix:
         while True:
             data_chs = list(live_chs.union(muted_chs))
             random.shuffle(data_chs)
-            val, ch = alts([self._state_ch, *data_chs], priority=True)
+            val, ch = t_alts([self._state_ch, *data_chs], priority=True)
             if ch is self._state_ch:
                 live_chs, muted_chs = val['liveChs'], val['mutedChs']
             elif val is None:
