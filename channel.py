@@ -433,12 +433,21 @@ def async_put(port, val, f=lambda _: None, on_caller=True):
     ret = port._put(FnHandler(f), val)
     if ret is None:
         return True
-    if on_caller:
-        return f(ret[0])
+    elif on_caller:
+        f(ret[0])
+    else:
+        threading.Thread(target=f, args=[ret[0]]).start()
     return ret[0]
 
 
-# TODO: Create async_get
+def async_get(port, f, on_caller=True):
+    ret = port._get(FnHandler(f))
+    if ret is None:
+        return None
+    elif on_caller:
+        f(ret[0])
+    else:
+        threading.Thread(target=f, args=[ret[0]]).start()
 
 
 def reduce(go, f, init, ch):

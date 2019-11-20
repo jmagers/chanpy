@@ -1480,5 +1480,82 @@ class TestMerge(unittest.TestCase):
         asyncio.run(main())
 
 
+class TestAsyncPut(unittest.TestCase):
+    def test_return_true_if_buffer_not_full(self):
+        self.assertIs(c.async_put(chan(1), 'val'), True)
+
+    def test_returns_true_if_buffer_full_not_closed(self):
+        self.assertIs(c.async_put(chan(), 'val'), True)
+
+    def test_return_false_if_closed(self):
+        ch = chan()
+        ch.close()
+        self.assertIs(c.async_put(ch, 'val'), False)
+
+    def test_cb_called_if_buffer_full(self):
+        ch = chan()
+        prom = c.Promise()
+        c.async_put(ch, 'val', prom.deliver)
+        self.assertEqual(ch.t_get(), 'val')
+        self.assertIs(prom.deref(), True)
+
+    def test_cb_called_on_caller_if_buffer_not_full(self):
+        prom = c.Promise()
+        c.async_put(chan(1),
+                    'val',
+                    lambda x: prom.deliver([x, threading.get_ident()]))
+        self.assertEqual(prom.deref(), [True, threading.get_ident()])
+
+    def test_cb_called_on_different_thread_if_buffer_not_full(self):
+        prom = c.Promise()
+        c.async_put(chan(1),
+                    'val',
+                    lambda x: prom.deliver([x, threading.get_ident()]),
+                    on_caller=False)
+        val, thread_id = prom.deref()
+        self.assertIs(val, True)
+        self.assertNotEqual(thread_id, threading.get_ident())
+
+
+class TestAsyncGet(unittest.TestCase):
+    def test_return_none_if_buffer_not_empty(self):
+        ch = chan(1)
+        ch.t_put('val')
+        self.assertIsNone(c.async_get(ch, identity))
+
+    def test_return_none_if_buffer_empty(self):
+        self.assertIsNone(c.async_get(chan(), identity))
+
+    def test_return_none_if_closed(self):
+        ch = chan()
+        ch.close()
+        self.assertIsNone(c.async_get(ch, identity))
+
+    def test_cb_called_if_buffer_empty(self):
+        prom = c.Promise()
+        ch = chan()
+        c.async_get(ch, prom.deliver)
+        ch.t_put('val')
+        self.assertEqual(prom.deref(), 'val')
+
+    def test_cb_called_on_caller_if_buffer_not_empty(self):
+        prom = c.Promise()
+        ch = chan(1)
+        ch.t_put('val')
+        c.async_get(ch, lambda x: prom.deliver([x, threading.get_ident()]))
+        self.assertEqual(prom.deref(), ['val', threading.get_ident()])
+
+    def test_cb_called_on_different_thread_if_buffer_not_empty(self):
+        prom = c.Promise()
+        ch = chan(1)
+        ch.t_put('val')
+        c.async_get(ch,
+                    lambda x: prom.deliver([x, threading.get_ident()]),
+                    on_caller=False)
+        val, thread_id = prom.deref()
+        self.assertEqual(val, 'val')
+        self.assertNotEqual(thread_id, threading.get_ident())
+
+
 if __name__ == '__main__':
     unittest.main()
