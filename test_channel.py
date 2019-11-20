@@ -6,7 +6,7 @@ import time
 import unittest
 import transducers as xf
 import channel as c
-from channel import chan, mult
+from channel import chan
 from toolz import identity
 
 
@@ -864,79 +864,240 @@ class TestSlidingBuffer(unittest.TestCase):
         self.assertEqual(list(ch), [3, 4])
 
 
-class TestMult(unittest.TestCase):
+class TestMultAsyncio(unittest.TestCase):
     def test_tap(self):
-        src, dest = chan(), chan()
-        m = mult(src)
-        m.tap(dest)
-        src.t_put('success')
-        self.assertEqual(dest.t_get(), 'success')
-        src.close()
+        async def main():
+            src, dest = chan(), chan()
+            go = c.Go()
+            m = c.mult(go, src)
+            m.tap(dest)
+            await src.a_put('success')
+            self.assertEqual(await dest.a_get(), 'success')
+            src.close()
+
+        asyncio.run(main())
 
     def test_untap(self):
-        src, dest1, dest2 = chan(), chan(), chan()
-        m = mult(src)
-        m.tap(dest1)
-        m.tap(dest2)
-        src.t_put('item1')
-        dest1.t_get()
-        dest2.t_get()
-        m.untap(dest2)
-        src.t_put('item2')
-        dest1.t_get()
-        time.sleep(0.1)
-        self.assertIsNone(dest2.t_get(block=False))
-        src.close()
+        async def main():
+            src, dest1, dest2 = chan(), chan(), chan()
+            go = c.Go()
+            m = c.mult(go, src)
+            m.tap(dest1)
+            m.tap(dest2)
+            await src.a_put('item1')
+            await dest1.a_get()
+            await dest2.a_get()
+            m.untap(dest2)
+            await src.a_put('item2')
+            await dest1.a_get()
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await dest2.a_get(block=False))
+            src.close()
 
-    def test_untapAll(self):
-        src, dest1, dest2 = chan(), chan(), chan()
-        m = mult(src)
-        m.tap(dest1)
-        m.tap(dest2)
-        src.t_put('item')
-        dest1.t_get()
-        dest2.t_get()
-        m.untapAll()
-        self.assertIs(src.t_put("dropMe"), True)
-        time.sleep(0.1)
-        self.assertIsNone(dest1.t_get(block=False))
-        self.assertIsNone(dest2.t_get(block=False))
+        asyncio.run(main())
+
+    def test_untap_all(self):
+        async def main():
+            src, dest1, dest2 = chan(), chan(), chan()
+            go = c.Go()
+            m = c.mult(go, src)
+            m.tap(dest1)
+            m.tap(dest2)
+            await src.a_put('item')
+            await dest1.a_get()
+            await dest2.a_get()
+            m.untap_all()
+            self.assertIs(await src.a_put('dropMe'), True)
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await dest1.a_get(block=False))
+            self.assertIsNone(await dest2.a_get(block=False))
+
+        asyncio.run(main())
 
     def test_untap_nonexistant_tap(self):
-        src = chan()
-        m = mult(src)
-        self.assertIsNone(m.untap(chan()))
-        src.close()
+        async def main():
+            src = chan()
+            go = c.Go()
+            m = c.mult(go, src)
+            self.assertIsNone(m.untap(chan()))
+            src.close()
+
+        asyncio.run(main())
 
     def test_mult_blocks_until_all_taps_accept(self):
-        src, dest1, dest2 = chan(), chan(), chan()
-        m = mult(src)
-        m.tap(dest1)
-        m.tap(dest2)
-        src.t_put('item')
-        dest1.t_get()
-        time.sleep(0.1)
-        self.assertIs(src.t_put('failure', block=False), False)
-        dest2.t_get()
-        src.close()
+        async def main():
+            src, dest1, dest2 = chan(), chan(), chan()
+            go = c.Go()
+            m = c.mult(go, src)
+            m.tap(dest1)
+            m.tap(dest2)
+            await src.a_put('item')
+            await dest1.a_get()
+            await asyncio.sleep(0.1)
+            self.assertIs(await src.a_put('failure', block=False), False)
+            await dest2.a_get()
+            src.close()
+
+        asyncio.run(main())
 
     def test_only_correct_taps_close(self):
-        src, closeDest, noCloseDest = chan(), chan(1), chan(1)
-        m = mult(src)
-        m.tap(closeDest)
-        m.tap(noCloseDest, close=False)
-        src.close()
-        time.sleep(0.1)
-        self.assertIs(closeDest.t_put('closed'), False)
-        self.assertIs(noCloseDest.t_put('not closed'), True)
+        async def main():
+            src, close_dest, no_close_dest = chan(), chan(1), chan(1)
+            go = c.Go()
+            m = c.mult(go, src)
+            m.tap(close_dest)
+            m.tap(no_close_dest, close=False)
+            src.close()
+            await asyncio.sleep(0.1)
+            self.assertIs(await close_dest.a_put('closed'), False)
+            self.assertIs(await no_close_dest.a_put('not closed'), True)
+
+        asyncio.run(main())
 
     def test_tap_closes_when_added_after_mult_closes(self):
-        srcCh, tapCh = chan(), chan()
-        m = mult(srcCh)
-        srcCh.close()
-        time.sleep(0.1)
-        m.tap(tapCh)
-        self.assertIsNone(tapCh.t_get())
+        async def main():
+            src_ch, tap_ch = chan(), chan()
+            go = c.Go()
+            m = c.mult(go, src_ch)
+            src_ch.close()
+            await asyncio.sleep(0.1)
+            m.tap(tap_ch)
+            self.assertIsNone(await tap_ch.a_get())
+
+        asyncio.run(main())
+
+
+class TestMultThread(unittest.TestCase):
+    def test_tap(self):
+        def thread(go, src, dest):
+            m = c.mult(go, src)
+            m.tap(dest)
+            src.t_put('success')
+
+        async def main():
+            src, dest = chan(), chan()
+            go = c.Go()
+            threading.Thread(target=thread, args=(go, src, dest)).start()
+            self.assertEqual(await dest.a_get(), 'success')
+            src.close()
+
+        asyncio.run(main())
+
+    def test_untap(self):
+        def thread(go, src, dest1, dest2):
+            m = c.mult(go, src)
+            m.tap(dest1)
+            m.tap(dest2)
+            src.t_put('item1')
+            dest1.t_get()
+            dest2.t_get()
+            m.untap(dest2)
+            src.t_put('item2')
+            dest1.t_get()
+
+        async def main():
+            src, dest1, dest2 = chan(), chan(), chan()
+            go = c.Go()
+            threading.Thread(target=thread,
+                             args=(go, src, dest1, dest2)).start()
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await dest2.a_get(block=False))
+            src.close()
+
+        asyncio.run(main())
+
+    def test_untap_all(self):
+        def thread(go, src, dest1, dest2):
+            m = c.mult(go, src)
+            m.tap(dest1)
+            m.tap(dest2)
+            src.t_put('item')
+            dest1.t_get()
+            dest2.t_get()
+            m.untap_all()
+
+        async def main():
+            src, dest1, dest2 = chan(), chan(), chan()
+            go = c.Go()
+            threading.Thread(target=thread,
+                             args=(go, src, dest1, dest2)).start()
+            await asyncio.sleep(0.1)
+            self.assertIs(await src.a_put('dropMe'), True)
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await dest1.a_get(block=False))
+            self.assertIsNone(await dest2.a_get(block=False))
+
+        asyncio.run(main())
+
+    def test_untap_nonexistant_tap(self):
+        def thread(go, src, complete):
+            m = c.mult(go, src)
+            m.untap(chan())
+            src.close()
+            complete.close()
+
+        async def main():
+            src, complete = chan(), chan()
+            go = c.Go()
+            threading.Thread(target=thread, args=(go, src, complete)).start()
+            self.assertIsNone(await complete.a_get())
+
+        asyncio.run(main())
+
+    def test_mult_blocks_until_all_taps_accept(self):
+        def thread(go, src, dest1, dest2, complete):
+            m = c.mult(go, src)
+            m.tap(dest1)
+            m.tap(dest2)
+            src.t_put('item')
+            dest1.t_get()
+            time.sleep(0.1)
+            self.assertIs(src.t_put('failure', block=False), False)
+            dest2.t_get()
+            src.close()
+            complete.close()
+
+        async def main():
+            src, dest1, dest2, complete = chan(), chan(), chan(), chan()
+            go = c.Go()
+            threading.Thread(target=thread,
+                             args=(go, src, dest1, dest2, complete)).start()
+            self.assertIsNone(await complete.a_get())
+
+        asyncio.run(main())
+
+    def test_only_correct_taps_close(self):
+        def thread(go, src, close_dest, no_close_dest):
+            m = c.mult(go, src)
+            m.tap(close_dest)
+            m.tap(no_close_dest, close=False)
+            src.close()
+
+        async def main():
+            src, close_dest, no_close_dest = chan(), chan(1), chan(1)
+            go = c.Go()
+            threading.Thread(target=thread,
+                             args=(go, src, close_dest, no_close_dest)).start()
+            await asyncio.sleep(0.1)
+            self.assertIs(await close_dest.a_put('closed'), False)
+            self.assertIs(await no_close_dest.a_put('not closed'), True)
+
+        asyncio.run(main())
+
+    def test_tap_closes_when_added_after_mult_closes(self):
+        def thread(go, src_ch, tap_ch):
+            m = c.mult(go, src_ch)
+            src_ch.close()
+            time.sleep(0.1)
+            m.tap(tap_ch)
+
+        async def main():
+            src_ch, tap_ch = chan(), chan()
+            go = c.Go()
+            threading.Thread(target=thread, args=(go, src_ch, tap_ch)).start()
+            self.assertIsNone(await tap_ch.a_get())
+
+        asyncio.run(main())
 
 
 class TestMix(unittest.TestCase):

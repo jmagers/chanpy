@@ -466,13 +466,15 @@ class Go:
     def __init__(self):
         self._loop = asyncio.get_running_loop()
 
-    def __call__(self, coro, daemon=False):
+    def in_loop(self):
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop = None
+            return False
+        return loop is self._loop
 
-        if loop is self._loop:
+    def __call__(self, coro, daemon=False):
+        if self.in_loop():
             asyncio.create_task(coro)
         else:
             asyncio.run_coroutine_threadsafe(coro, self._loop)
@@ -488,6 +490,28 @@ class Go:
 
         self(wrapper())
         return ch
+
+    def schedule_callback(self, cb, eager=False):
+        """Schedules cb to run in event loop.
+        Returns a ch that closes when finished."""
+        ch = chan()
+
+        def wrapper():
+            cb()
+            ch.close()
+
+        if self.in_loop():
+            if eager:
+                wrapper()
+            else:
+                self._loop.call_soon(wrapper)
+        else:
+            self._loop.call_soon_threadsafe(wrapper)
+
+        return ch
+
+    def run_callback(self, cb):
+        self.schedule_callback(cb, eager=True).t_get()
 
 
 def onto_chan(go, ch, coll, close=True):
@@ -542,6 +566,7 @@ def merge(go, chs, buf=None):
     return to_ch
 
 
+# TODO: Use go instead of thread
 def timeout(msecs):
     ch = chan()
     timer = threading.Timer(msecs / 1000, ch.close)
@@ -555,52 +580,48 @@ async def a_list(ch):
 
 
 class Mult:
-    def __init__(self, ch):
-        self._srcCh = ch
+    def __init__(self, go, ch):
+        self._go = go
+        self._src_ch = ch
         self._consumers = {}
-        self._isClosed = False
-        self._lock = threading.Lock()
-        threading.Thread(target=self._proc, daemon=True).start()
+        self._is_closed = False
+        go(self._proc())
 
     def tap(self, ch, close=True):
-        with self._lock:
-            if self._isClosed and close:
+        def _tap():
+            if self._is_closed and close:
                 ch.close()
             self._consumers[ch] = close
+        self._go.run_callback(_tap)
 
     def untap(self, ch):
-        with self._lock:
-            self._consumers.pop(ch, None)
+        self._go.run_callback(lambda: self._consumers.pop(ch, None))
 
-    def untapAll(self):
-        with self._lock:
-            self._consumers.clear()
+    def untap_all(self):
+        self._go.run_callback(self._consumers.clear)
 
-    def _proc(self):
+    async def _proc(self):
         while True:
-            # Get next item to distribute. Close consumers when srcCh closes.
-            item = self._srcCh.t_get()
+            # Get next item to distribute. Close consumers when src_ch closes.
+            item = await self._src_ch.a_get()
             if item is None:
-                with self._lock:
-                    self._isClosed = True
-                    for consumer, close in self._consumers.items():
-                        if close:
-                            consumer.close()
+                self._is_closed = True
+                for consumer, close in self._consumers.items():
+                    if close:
+                        consumer.close()
                 break
 
             # Distribute item to consumers
-            with self._lock:
-                remaining_chs = set(self._consumers.keys())
+            remaining_chs = set(self._consumers.keys())
             while len(remaining_chs) > 0:
-                stillOpen, ch = t_alts([ch, item] for ch in remaining_chs)
-                if not stillOpen:
-                    with self._lock:
-                        self._consumers.pop(ch, None)
+                is_open, ch = await a_alts([ch, item] for ch in remaining_chs)
+                if not is_open:
+                    self._consumers.pop(ch, None)
                 remaining_chs.remove(ch)
 
 
-def mult(ch):
-    return Mult(ch)
+def mult(go, ch):
+    return Mult(go, ch)
 
 
 class Mix:
