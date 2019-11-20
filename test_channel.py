@@ -1100,218 +1100,277 @@ class TestMultThread(unittest.TestCase):
         asyncio.run(main())
 
 
-class TestMix(unittest.TestCase):
+class TestMixAsyncio(unittest.TestCase):
     def test_toggle_exceptions(self):
-        ch = chan()
-        m = c.mix(ch)
-        with self.assertRaises(ValueError):
-            m.toggle({'not a channel': {}})
-        with self.assertRaises(ValueError):
-            m.toggle({ch: {'invalid option': True}})
-        with self.assertRaises(ValueError):
-            m.toggle({ch: {'solo': 'not a boolean'}})
-        with self.assertRaises(ValueError):
-            m.toggle({ch: {'pause': 'not a boolean'}})
-        with self.assertRaises(ValueError):
-            m.toggle({ch: {'mute': 'not a boolean'}})
+        async def main():
+            ch = chan()
+            go = c.Go()
+            m = c.mix(go, ch)
+            with self.assertRaises(ValueError):
+                m.toggle({'not a channel': {}})
+            with self.assertRaises(ValueError):
+                m.toggle({ch: {'invalid option': True}})
+            with self.assertRaises(ValueError):
+                m.toggle({ch: {'solo': 'not a boolean'}})
+            with self.assertRaises(ValueError):
+                m.toggle({ch: {'pause': 'not a boolean'}})
+            with self.assertRaises(ValueError):
+                m.toggle({ch: {'mute': 'not a boolean'}})
+
+        asyncio.run(main())
 
     def test_solo_mode_exception(self):
-        m = c.mix(chan())
-        with self.assertRaises(ValueError):
-            m.solo_mode('invalid mode')
+        async def main():
+            m = c.mix(c.Go(), chan())
+            with self.assertRaises(ValueError):
+                m.solo_mode('invalid mode')
+
+        asyncio.run(main())
 
     def test_admix(self):
-        fromCh1, fromCh2, toCh = chan(), chan(), chan(1)
-        m = c.mix(toCh)
-        m.admix(fromCh1)
-        fromCh1.t_put('fromCh1')
-        self.assertEqual(toCh.t_get(), 'fromCh1')
-        m.admix(fromCh2)
-        fromCh1.t_put('fromCh1 again')
-        self.assertEqual(toCh.t_get(), 'fromCh1 again')
-        fromCh2.t_put('fromCh2')
-        self.assertEqual(toCh.t_get(), 'fromCh2')
+        async def main():
+            from_ch1, from_ch2, to_ch = chan(), chan(), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.admix(from_ch1)
+            await from_ch1.a_put('from_ch1')
+            self.assertEqual(await to_ch.a_get(), 'from_ch1')
+            m.admix(from_ch2)
+            await from_ch1.a_put('from_ch1 again')
+            self.assertEqual(await to_ch.a_get(), 'from_ch1 again')
+            await from_ch2.a_put('from_ch2')
+            self.assertEqual(await to_ch.a_get(), 'from_ch2')
+
+        asyncio.run(main())
 
     def test_unmix(self):
-        fromCh1, fromCh2, toCh = chan(1), chan(1), chan(1)
-        m = c.mix(toCh)
-        m.admix(fromCh1)
-        fromCh1.t_put('fromCh1')
-        self.assertEqual(toCh.t_get(), 'fromCh1')
-        m.admix(fromCh2)
-        m.unmix(fromCh1)
-        fromCh2.t_put('fromCh2')
-        self.assertEqual(toCh.t_get(), 'fromCh2')
-        fromCh1.t_put('remain in fromCh1')
-        time.sleep(0.1)
-        self.assertIsNone(toCh.t_get(block=False))
-        self.assertEqual(fromCh1.t_get(), 'remain in fromCh1')
+        async def main():
+            from_ch1, from_ch2, to_ch = chan(1), chan(1), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.admix(from_ch1)
+            await from_ch1.a_put('from_ch1')
+            self.assertEqual(await to_ch.a_get(), 'from_ch1')
+            m.admix(from_ch2)
+            m.unmix(from_ch1)
+            await from_ch2.a_put('from_ch2')
+            self.assertEqual(await to_ch.a_get(), 'from_ch2')
+            await from_ch1.a_put('remain in from_ch1')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await to_ch.a_get(block=False))
+            self.assertEqual(await from_ch1.a_get(), 'remain in from_ch1')
+
+        asyncio.run(main())
 
     def test_unmix_all(self):
-        fromCh1, fromCh2, toCh = chan(1), chan(1), chan(1)
-        m = c.mix(toCh)
-        m.admix(fromCh1)
-        m.admix(fromCh2)
-        fromCh1.t_put('fromCh1')
-        self.assertEqual(toCh.t_get(), 'fromCh1')
-        fromCh2.t_put('fromCh2')
-        self.assertEqual(toCh.t_get(), 'fromCh2')
-        m.unmix_all()
-        time.sleep(0.1)
-        fromCh1.t_put('ignore fromCh1 item')
-        fromCh2.t_put('ignore fromCh2 item')
-        time.sleep(0.1)
-        self.assertIsNone(toCh.t_get(block=False))
+        async def main():
+            from_ch1, from_ch2, to_ch = chan(1), chan(1), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.admix(from_ch1)
+            m.admix(from_ch2)
+            await from_ch1.a_put('from_ch1')
+            self.assertEqual(await to_ch.a_get(), 'from_ch1')
+            await from_ch2.a_put('from_ch2')
+            self.assertEqual(await to_ch.a_get(), 'from_ch2')
+            m.unmix_all()
+            await asyncio.sleep(0.1)
+            await from_ch1.a_put('ignore from_ch1 item')
+            await from_ch2.a_put('ignore from_ch2 item')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await to_ch.a_get(block=False))
+
+        asyncio.run(main())
 
     def test_mute(self):
-        unmutedCh, mutedCh = chan(), chan()
-        toCh = chan(1)
-        m = c.mix(toCh)
-        m.toggle({unmutedCh: {'mute': False},
-                  mutedCh: {'mute': True}})
-        unmutedCh.t_put('not muted')
-        self.assertEqual(toCh.t_get(), 'not muted')
-        mutedCh.t_put('mute me')
-        self.assertIsNone(toCh.t_get(block=False))
+        async def main():
+            unmuted_ch, muted_ch = chan(), chan()
+            to_ch = chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.toggle({unmuted_ch: {'mute': False},
+                      muted_ch: {'mute': True}})
+            await unmuted_ch.a_put('not muted')
+            self.assertEqual(await to_ch.a_get(), 'not muted')
+            await muted_ch.a_put('mute me')
+            self.assertIsNone(await to_ch.a_get(block=False))
 
-        m.toggle({unmutedCh: {'mute': True},
-                  mutedCh: {'mute': False}})
-        mutedCh.t_put('the mute can now talk')
-        self.assertEqual(toCh.t_get(), 'the mute can now talk')
-        unmutedCh.t_put('i made a deal with Ursula')
-        self.assertIsNone(toCh.t_get(block=False))
+            m.toggle({unmuted_ch: {'mute': True},
+                      muted_ch: {'mute': False}})
+            await muted_ch.a_put('the mute can now talk')
+            self.assertEqual(await to_ch.a_get(), 'the mute can now talk')
+            await unmuted_ch.a_put('i made a deal with Ursula')
+            self.assertIsNone(await to_ch.a_get(block=False))
+
+        asyncio.run(main())
 
     def test_pause(self):
-        unpausedCh, pausedCh, toCh = chan(1), chan(1), chan(1)
-        m = c.mix(toCh)
-        m.toggle({unpausedCh: {'pause': False},
-                  pausedCh: {'pause': True}})
-        unpausedCh.t_put('not paused')
-        self.assertEqual(toCh.t_get(), 'not paused')
-        pausedCh.t_put('remain in pausedCh')
-        time.sleep(0.1)
-        self.assertEqual(pausedCh.t_get(), 'remain in pausedCh')
+        async def main():
+            unpaused_ch, paused_ch, to_ch = chan(1), chan(1), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.toggle({unpaused_ch: {'pause': False},
+                      paused_ch: {'pause': True}})
+            await unpaused_ch.a_put('not paused')
+            self.assertEqual(await to_ch.a_get(), 'not paused')
+            await paused_ch.a_put('remain in paused_ch')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await paused_ch.a_get(), 'remain in paused_ch')
 
-        m.toggle({unpausedCh: {'pause': True},
-                  pausedCh: {'pause': False}})
-        pausedCh.t_put('no longer paused')
-        self.assertEqual(toCh.t_get(), 'no longer paused')
-        unpausedCh.t_put('paused now')
-        time.sleep(0.1)
-        self.assertEqual(unpausedCh.t_get(), 'paused now')
+            m.toggle({unpaused_ch: {'pause': True},
+                      paused_ch: {'pause': False}})
+            await paused_ch.a_put('no longer paused')
+            self.assertEqual(await to_ch.a_get(), 'no longer paused')
+            await unpaused_ch.a_put('paused now')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await unpaused_ch.a_get(), 'paused now')
+
+        asyncio.run(main())
 
     def test_pause_dominates_mute(self):
-        fromCh, toCh = chan(1), chan(1)
-        m = c.mix(toCh)
-        m.toggle({fromCh: {'pause': True, 'mute': True}})
-        fromCh.t_put('stay in fromCh')
-        time.sleep(0.1)
-        self.assertEqual(fromCh.t_get(), 'stay in fromCh')
+        async def main():
+            from_ch, to_ch = chan(1), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.toggle({from_ch: {'pause': True, 'mute': True}})
+            await from_ch.a_put('stay in from_ch')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await from_ch.a_get(), 'stay in from_ch')
+
+        asyncio.run(main())
 
     def test_solo_domintates_pause_and_mute(self):
-        fromCh, toCh = chan(), chan(1)
-        m = c.mix(toCh)
-        m.toggle({fromCh: {'solo': True, 'pause': True, 'mute': True}})
-        fromCh.t_put('success')
-        self.assertEqual(toCh.t_get(), 'success')
+        async def main():
+            from_ch, to_ch = chan(), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.toggle({from_ch: {'solo': True, 'pause': True, 'mute': True}})
+            await from_ch.a_put('success')
+            self.assertEqual(await to_ch.a_get(), 'success')
+
+        asyncio.run(main())
 
     def test_solomode_mute(self):
-        soloCh1, soloCh2, nonSoloCh = chan(), chan(), chan()
-        toCh = chan(1)
-        m = c.mix(toCh)
+        async def main():
+            solo_ch1, solo_ch2, non_solo_ch = chan(), chan(), chan()
+            to_ch = chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
 
-        m.toggle({soloCh1: {'solo': True},
-                  soloCh2: {'solo': True},
-                  nonSoloCh: {}})
-        m.solo_mode('mute')
-        soloCh1.t_put('soloCh1 not muted')
-        self.assertEqual(toCh.t_get(), 'soloCh1 not muted')
-        soloCh2.t_put('soloCh2 not muted')
-        self.assertEqual(toCh.t_get(), 'soloCh2 not muted')
-        nonSoloCh.t_put('drop me')
-        self.assertIsNone(nonSoloCh.t_get(block=False))
-        self.assertIsNone(toCh.t_get(block=False))
+            m.solo_mode('mute')
+            m.toggle({solo_ch1: {'solo': True},
+                      solo_ch2: {'solo': True},
+                      non_solo_ch: {}})
+            await solo_ch1.a_put('solo_ch1 not muted')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch1 not muted')
+            await solo_ch2.a_put('solo_ch2 not muted')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch2 not muted')
+            await non_solo_ch.a_put('drop me')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(await to_ch.a_get(block=False))
 
-        m.toggle({soloCh1: {'solo': False},
-                  soloCh2: {'solo': False}})
-        soloCh1.t_put('soloCh1 still not muted')
-        self.assertEqual(toCh.t_get(), 'soloCh1 still not muted')
-        soloCh2.t_put('soloCh2 still not muted')
-        self.assertEqual(toCh.t_get(), 'soloCh2 still not muted')
-        nonSoloCh.t_put('nonSoloCh not muted')
-        self.assertEqual(toCh.t_get(), 'nonSoloCh not muted')
+            m.toggle({solo_ch1: {'solo': False},
+                      solo_ch2: {'solo': False}})
+            await asyncio.sleep(0.1)
+            await solo_ch1.a_put('solo_ch1 still not muted')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch1 still not muted')
+            await solo_ch2.a_put('solo_ch2 still not muted')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch2 still not muted')
+            await non_solo_ch.a_put('non_solo_ch not muted')
+            self.assertEqual(await to_ch.a_get(), 'non_solo_ch not muted')
+
+        asyncio.run(main())
 
     def test_solomode_pause(self):
-        soloCh1, soloCh2, nonSoloCh, toCh = chan(1), chan(1), chan(1), chan(1)
-        m = c.mix(toCh)
+        async def main():
+            to_ch = chan(1)
+            solo_ch1, solo_ch2, non_solo_ch = chan(1), chan(1), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
 
-        m.toggle({soloCh1: {'solo': True},
-                  soloCh2: {'solo': True},
-                  nonSoloCh: {}})
-        m.solo_mode('pause')
-        soloCh1.t_put('soloCh1 not paused')
-        self.assertEqual(toCh.t_get(), 'soloCh1 not paused')
-        soloCh2.t_put('soloCh2 not paused')
-        self.assertEqual(toCh.t_get(), 'soloCh2 not paused')
-        nonSoloCh.t_put('stay in nonSoloCh')
-        time.sleep(0.1)
-        self.assertEqual(nonSoloCh.t_get(), 'stay in nonSoloCh')
+            m.solo_mode('pause')
+            m.toggle({solo_ch1: {'solo': True},
+                      solo_ch2: {'solo': True},
+                      non_solo_ch: {}})
+            await solo_ch1.a_put('solo_ch1 not paused')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch1 not paused')
+            await solo_ch2.a_put('solo_ch2 not paused')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch2 not paused')
+            await non_solo_ch.a_put('stay in non_solo_ch')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await non_solo_ch.a_get(), 'stay in non_solo_ch')
 
-        m.toggle({soloCh1: {'solo': False},
-                  soloCh2: {'solo': False}})
-        soloCh1.t_put('soloCh1 still not paused')
-        self.assertEqual(toCh.t_get(), 'soloCh1 still not paused')
-        soloCh2.t_put('soloCh2 still not paused')
-        self.assertEqual(toCh.t_get(), 'soloCh2 still not paused')
-        nonSoloCh.t_put('nonSoloCh not paused')
-        self.assertEqual(toCh.t_get(), 'nonSoloCh not paused')
+            m.toggle({solo_ch1: {'solo': False},
+                      solo_ch2: {'solo': False}})
+            await asyncio.sleep(0.1)
+            await solo_ch1.a_put('solo_ch1 still not paused')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch1 still not paused')
+            await solo_ch2.a_put('solo_ch2 still not paused')
+            self.assertEqual(await to_ch.a_get(), 'solo_ch2 still not paused')
+            await non_solo_ch.a_put('non_solo_ch not paused')
+            self.assertEqual(await to_ch.a_get(), 'non_solo_ch not paused')
+
+        asyncio.run(main())
 
     def test_admix_unmix_toggle_do_not_interrupt_put(self):
-        toCh = chan()
-        fromCh, admixCh, unmixCh, pauseCh = chan(1), chan(1), chan(1), chan(1)
-        m = c.mix(toCh)
-        m.toggle({fromCh: {}, unmixCh: {}})
+        async def main():
+            to_ch, from_ch = chan(), chan(1)
+            admix_ch, unmix_ch, pause_ch = chan(1), chan(1), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.toggle({from_ch: {}, unmix_ch: {}})
 
-        # Start blocking put
-        fromCh.t_put('successful transfer')
-        time.sleep(0.1)
+            # Start waiting put to to_ch
+            await from_ch.a_put('successful transfer')
+            await asyncio.sleep(0.1)
 
-        # Apply operations while mix is waiting on toCh
-        m.admix(admixCh)
-        m.unmix(unmixCh)
-        m.toggle({pauseCh: {'pause': True}})
+            # Apply operations while mix is waiting on to_ch
+            m.admix(admix_ch)
+            m.unmix(unmix_ch)
+            m.toggle({pause_ch: {'pause': True}})
 
-        # Confirm state is correct
-        self.assertEqual(toCh.t_get(), 'successful transfer')
+            # Confirm state is correct
+            self.assertEqual(await to_ch.a_get(), 'successful transfer')
 
-        admixCh.t_put('admixCh added')
-        self.assertEqual(toCh.t_get(), 'admixCh added')
+            await admix_ch.a_put('admix_ch added')
+            self.assertEqual(await to_ch.a_get(), 'admix_ch added')
 
-        unmixCh.t_put('unmixCh removed')
-        time.sleep(0.1)
-        self.assertEqual(unmixCh.t_get(), 'unmixCh removed')
+            await unmix_ch.a_put('unmix_ch removed')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await unmix_ch.a_get(), 'unmix_ch removed')
 
-        pauseCh.t_put('pauseCh paused')
-        time.sleep(0.1)
-        self.assertEqual(pauseCh.t_get(), 'pauseCh paused')
+            await pause_ch.a_put('pause_ch paused')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await pause_ch.a_get(), 'pause_ch paused')
 
-    def test_toCh_does_not_close_when_fromChs_do(self):
-        fromCh, toCh = chan(), chan(1)
-        m = c.mix(toCh)
-        m.admix(fromCh)
-        fromCh.close()
-        time.sleep(0.1)
-        self.assertIs(toCh.t_put('success'), True)
+        asyncio.run(main())
 
-    def test_mix_consumes_only_one_after_toCh_closes(self):
-        fromCh, toCh = chan(1), chan()
-        m = c.mix(toCh)
-        m.admix(fromCh)
-        toCh.close()
-        fromCh.t_put('mix consumes me')
-        fromCh.t_put('mix ignores me')
-        time.sleep(0.1)
-        self.assertEqual(fromCh.t_get(), 'mix ignores me')
+    def test_to_ch_does_not_close_when_from_chs_do(self):
+        async def main():
+            from_ch, to_ch = chan(), chan(1)
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.admix(from_ch)
+            from_ch.close()
+            await asyncio.sleep(0.1)
+            self.assertIs(await to_ch.a_put('success'), True)
+
+        asyncio.run(main())
+
+    def test_mix_consumes_only_one_after_to_ch_closes(self):
+        async def main():
+            from_ch, to_ch = chan(1), chan()
+            go = c.Go()
+            m = c.mix(go, to_ch)
+            m.admix(from_ch)
+            await asyncio.sleep(0.1)
+            to_ch.close()
+            await from_ch.a_put('mix consumes me')
+            await from_ch.a_put('mix ignores me')
+            await asyncio.sleep(0.1)
+            self.assertEqual(await from_ch.a_get(), 'mix ignores me')
+
+        asyncio.run(main())
 
 
 class TestPipe(unittest.TestCase):

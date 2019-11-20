@@ -613,12 +613,12 @@ class Mult:
                 break
 
             # Distribute item to consumers
-            remaining_chs = set(self._consumers.keys())
+            remaining_chs = {ch: item for ch in self._consumers.keys()}
             while len(remaining_chs) > 0:
-                is_open, ch = await a_alts([ch, item] for ch in remaining_chs)
+                is_open, ch = await a_alts(remaining_chs.items())
                 if not is_open:
                     self._consumers.pop(ch, None)
-                remaining_chs.remove(ch)
+                remaining_chs.pop(ch)
 
 
 def mult(go, ch):
@@ -626,51 +626,59 @@ def mult(go, ch):
 
 
 class Mix:
-    def __init__(self, to_ch):
+    def __init__(self, go, ch):
+        self._go = go
         self._state_ch = chan(SlidingBuffer(1))
         self._state_map = {}
         self._solo_mode = 'mute'
-        self._lock = threading.Lock()
-        threading.Thread(target=self._proc, args=[to_ch], daemon=True).start()
+        go(self._proc(ch))
 
     def toggle(self, state_map):
-        with self._lock:
-            for ch, state in state_map.items():
-                if not is_chan(ch):
-                    raise ValueError(f'state_map key is not a channel: '
-                                     f'{state}')
-                if not set(state.keys()).issubset({'solo', 'pause', 'mute'}):
-                    raise ValueError(f'state contains invalid options: '
-                                     f'{state}')
-                if not set(state.values()).issubset({True, False}):
-                    raise ValueError(f'state contains non-boolean values: '
-                                     f'{state}')
-            for from_ch, new_state in state_map.items():
-                original_state = self._state_map.get(ch, {'solo': False,
-                                                          'pause': False,
-                                                          'mute': False})
-                self._state_map[from_ch] = {**original_state, **new_state}
-            self._sync_state()
+        for ch, state in state_map.items():
+            if not is_chan(ch):
+                raise ValueError(f'state_map key is not a channel: '
+                                 f'{state}')
+            if not set(state.keys()).issubset({'solo', 'pause', 'mute'}):
+                raise ValueError(f'state contains invalid options: '
+                                 f'{state}')
+            if not set(state.values()).issubset({True, False}):
+                raise ValueError(f'state contains non-boolean values: '
+                                 f'{state}')
+
+            def _toggle():
+                for ch, new_state in state_map.items():
+                    original_state = self._state_map.get(ch, {'solo': False,
+                                                              'pause': False,
+                                                              'mute': False})
+                    self._state_map[ch] = {**original_state, **new_state}
+                self._sync_state()
+
+            self._go.run_callback(_toggle)
 
     def admix(self, ch):
         self.toggle({ch: {}})
 
     def unmix(self, ch):
-        with self._lock:
+        def _unmix():
             self._state_map.pop(ch, None)
             self._sync_state()
+        self._go.run_callback(_unmix)
 
     def unmix_all(self):
-        with self._lock:
+        def _unmix_all():
             self._state_map.clear()
             self._sync_state()
+        self._go.run_callback(_unmix_all)
 
     def solo_mode(self, mode):
-        with self._lock:
-            if mode not in ['pause', 'mute']:
-                raise ValueError(f'solo-mode is invalid: {mode}')
+        if mode not in ['pause', 'mute']:
+            raise ValueError(f'solo-mode is invalid: {mode}')
+
+        def _solo_mode():
             self._solo_mode = mode
             self._sync_state()
+
+        self._go.run_callback(_solo_mode)
 
     def _sync_state(self):
         soloed_chs, muted_chs, live_chs = set(), set(), set()
@@ -686,31 +694,31 @@ class Mix:
                 live_chs.add(ch)
 
         if len(soloed_chs) == 0:
-            self._state_ch.t_put({'liveChs': live_chs, 'mutedChs': muted_chs})
+            self._state_ch.t_put({'live_chs': live_chs,
+                                  'muted_chs': muted_chs})
         elif self._solo_mode == 'pause':
-            self._state_ch.t_put({'liveChs': soloed_chs, 'mutedChs': set()})
+            self._state_ch.t_put({'live_chs': soloed_chs, 'muted_chs': set()})
         elif self._solo_mode == 'mute':
-            self._state_ch.t_put({'liveChs': soloed_chs,
-                                 'mutedChs': muted_chs.union(live_chs)})
+            self._state_ch.t_put({'live_chs': soloed_chs,
+                                  'muted_chs': muted_chs.union(live_chs)})
 
-    def _proc(self, to_ch):
+    async def _proc(self, to_ch):
         live_chs, muted_chs = set(), set()
         while True:
             data_chs = list(live_chs.union(muted_chs))
             random.shuffle(data_chs)
-            val, ch = t_alts([self._state_ch, *data_chs], priority=True)
+            val, ch = await a_alts([self._state_ch, *data_chs], priority=True)
             if ch is self._state_ch:
-                live_chs, muted_chs = val['liveChs'], val['mutedChs']
+                live_chs, muted_chs = val['live_chs'], val['muted_chs']
             elif val is None:
-                with self._lock:
-                    self._state_map.pop(ch, None)
+                self._state_map.pop(ch, None)
                 live_chs.discard(ch)
                 muted_chs.discard(ch)
             elif ch in muted_chs:
                 pass
-            elif not to_ch.t_put(val):
+            elif not await to_ch.a_put(val):
                 break
 
 
-def mix(ch):
-    return Mix(ch)
+def mix(go, ch):
+    return Mix(go, ch)
