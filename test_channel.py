@@ -110,6 +110,18 @@ class TestAsync(unittest.TestCase):
 
         self.assertEqual(asyncio.run(main()), (True, put_ch))
 
+    def test_a_alts_timeout(self):
+        async def main():
+            go = c.Go()
+            start_time = time.time()
+            timeout_ch = c.timeout(go, 100)
+            self.assertEqual(await c.a_alts([chan(), timeout_ch]),
+                             (None, timeout_ch))
+            elapsed_secs = time.time() - start_time
+            self.assertIs(0.05 < elapsed_secs < 0.15, True)
+
+        asyncio.run(main())
+
 
 class AbstractTestBufferedBlocking:
     def test_unsuccessful_blocking_put_none(self):

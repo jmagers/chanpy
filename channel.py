@@ -429,17 +429,6 @@ def t_alts(ports, priority=False):
     return prom.deref() if ret is None else ret
 
 
-# FIXME: reduce should not block, it should return a ch containing the result
-# TODO: create tests
-def reduce(f, init, ch):
-    result = init
-    while True:
-        value = ch.t_get()
-        if value is None:
-            return result
-        result = f(result, value)
-
-
 def async_put(port, val, f=lambda _: None, on_caller=True):
     ret = port._put(FnHandler(f), val)
     if ret is None:
@@ -450,6 +439,17 @@ def async_put(port, val, f=lambda _: None, on_caller=True):
 
 
 # TODO: Create async_get
+
+
+# FIXME: reduce should not block, it should return a ch containing the result
+# TODO: create tests
+def reduce(f, init, ch):
+    result = init
+    while True:
+        value = ch.t_get()
+        if value is None:
+            return result
+        result = f(result, value)
 
 
 def thread_call(f):
@@ -463,9 +463,17 @@ def thread_call(f):
     return ch
 
 
+async def a_list(ch):
+    return [x async for x in ch]
+
+
 class Go:
     def __init__(self):
         self._loop = asyncio.get_running_loop()
+
+    @property
+    def loop(self):
+        return self._loop
 
     def in_loop(self):
         try:
@@ -513,6 +521,12 @@ class Go:
 
     def run_callback(self, cb):
         self.schedule_callback(cb, eager=True).t_get()
+
+
+def timeout(go, msecs):
+    ch = chan()
+    go.loop.call_later(msecs / 1000, ch.close)
+    return ch
 
 
 def onto_chan(go, ch, coll, close=True):
@@ -565,19 +579,6 @@ def merge(go, chs, buf=None):
 
     go(proc())
     return to_ch
-
-
-# TODO: Use go instead of thread
-def timeout(msecs):
-    ch = chan()
-    timer = threading.Timer(msecs / 1000, ch.close)
-    timer.daemon = True
-    timer.start()
-    return ch
-
-
-async def a_list(ch):
-    return [x async for x in ch]
 
 
 class Mult:
