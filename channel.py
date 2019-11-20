@@ -101,10 +101,11 @@ class Chan:
         self._lock = threading.Lock()
 
         def step(_, val):
-            assert val is not None
+            if val is None:
+                raise TypeError('xform cannot produce None')
             self._buf.put(val)
 
-        self._bufRf = xform(multiArity(lambda: None, lambda _: None, step))
+        self._buf_rf = xform(multiArity(lambda: None, lambda _: None, step))
 
     def a_put(self, val, block=True):
         return self._a_op(lambda h: self._put(h, val), block)
@@ -269,7 +270,7 @@ class Chan:
             handler.release()
 
     def _buf_put(self, val):
-        if isReduced(self._bufRf(None, val)):
+        if isReduced(self._buf_rf(None, val)):
             # If reduced value is returned then no more input is allowed onto
             # buf. To ensure this, remove all pending puts and close ch.
             for putter, _ in self._puts:
@@ -301,7 +302,7 @@ class Chan:
                 len(self._puts) == 0 and
                 not self._xform_is_completed):
             self._xform_is_completed = True
-            self._bufRf(None)
+            self._buf_rf(None)
 
     def _close(self):
         self._cleanup()

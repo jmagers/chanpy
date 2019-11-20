@@ -234,7 +234,7 @@ class AbstractTestXform:
 
     def test_unsuccessful_transformation_to_none(self):
         ch = self.chan(1, xf.map(lambda _: None))
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             ch.t_put('failure')
 
     def test_close_flushes_xform_buffer(self):
