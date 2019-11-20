@@ -122,6 +122,25 @@ class TestAsync(unittest.TestCase):
 
         asyncio.run(main())
 
+    def test_reduce_empty_ch(self):
+        async def main():
+            ch = chan()
+            ch.close()
+            go = c.Go()
+            result_ch = c.reduce(go, lambda: None, 'init', ch)
+            self.assertEqual(await result_ch.a_get(), 'init')
+
+        asyncio.run(main())
+
+    def test_reduce_non_empty_ch(self):
+        async def main():
+            go = c.Go()
+            in_ch = c.to_chan(go, range(4))
+            result_ch = c.reduce(go, lambda x, y: x + y, 100, in_ch)
+            self.assertEqual(await result_ch.a_get(), 106)
+
+        asyncio.run(main())
+
 
 class AbstractTestBufferedBlocking:
     def test_unsuccessful_blocking_put_none(self):

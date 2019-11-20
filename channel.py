@@ -441,15 +441,18 @@ def async_put(port, val, f=lambda _: None, on_caller=True):
 # TODO: Create async_get
 
 
-# FIXME: reduce should not block, it should return a ch containing the result
-# TODO: create tests
-def reduce(f, init, ch):
-    result = init
-    while True:
-        value = ch.t_get()
-        if value is None:
-            return result
-        result = f(result, value)
+def reduce(go, f, init, ch):
+    result_ch = chan(1)
+
+    async def proc():
+        result = init
+        async for val in ch:
+            result = f(result, val)
+        await result_ch.a_put(result)
+        result_ch.close()
+
+    go(proc())
+    return result_ch
 
 
 def thread_call(f):
