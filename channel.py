@@ -109,8 +109,12 @@ class MaxQueueSize(Exception):
     """Maximum pending operations exceeded"""
 
 
+def nop_ex_handler(e):
+    raise e
+
+
 class Chan:
-    def __init__(self, buf=None, xform=identity):
+    def __init__(self, buf=None, xform=identity, ex_handler=nop_ex_handler):
         self._buf = buf
         self._takes = deque()
         self._puts = deque()
@@ -118,12 +122,23 @@ class Chan:
         self._xform_is_completed = False
         self._lock = threading.Lock()
 
+        def ex_handler_xform(rf):
+            def wrapper(*args, **kwargs):
+                try:
+                    return rf(*args, **kwargs)
+                except Exception as e:
+                    val = ex_handler(e)
+                    if val is not None:
+                        self._buf.put(val)
+            return wrapper
+
         def step(_, val):
             if val is None:
                 raise TypeError('xform cannot produce None')
             self._buf.put(val)
 
-        self._buf_rf = xform(multiArity(lambda: None, lambda _: None, step))
+        rf = multiArity(lambda: None, lambda _: None, step)
+        self._buf_rf = ex_handler_xform(xform(rf))
 
     def a_put(self, val, block=True):
         return self._a_op(lambda h: self._put(h, val), block)
@@ -361,13 +376,17 @@ def is_chan(ch):
     return isinstance(ch, Chan)
 
 
-def chan(buf=None, xform=None):
+def chan(buf=None, xform=None, ex_handler=None):
     if buf is None:
         if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
+        if ex_handler is not None:
+            raise TypeError('unbuffered channels cannot have an ex_handler')
         return Chan()
     new_buf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return Chan(new_buf, identity if xform is None else xform)
+    return Chan(new_buf,
+                identity if xform is None else xform,
+                nop_ex_handler if ex_handler is None else ex_handler)
 
 
 def promise_chan(xform=None):

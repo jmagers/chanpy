@@ -282,11 +282,34 @@ class AbstractTestXform:
         ch.close()
         self.assertEqual(list(ch), [(0, 1), (2,)])
 
+    def test_xform_ex_handler_non_none_return(self):
+        def handler(e):
+            if isinstance(e, ZeroDivisionError):
+                return 'zero'
+
+        ch = self.chan(3, xf.map(lambda x: 12 // x), handler)
+        ch.t_put(-1)
+        ch.t_put(0)
+        ch.t_put(2)
+        ch.close()
+        self.assertEqual(list(ch), [-12, 'zero', 6])
+
+    def test_xform_ex_handler_none_return(self):
+        def handler(e):
+            return None
+
+        ch = self.chan(3, xf.map(lambda x: 12 // x), handler)
+        ch.t_put(-1)
+        ch.t_put(0)
+        ch.t_put(2)
+        ch.close()
+        self.assertEqual(list(ch), [-12, 6])
+
 
 class TestXformBufferedChan(unittest.TestCase, AbstractTestXform):
     @staticmethod
-    def chan(n, xform):
-        return c.Chan(c.FixedBuffer(n), xform)
+    def chan(n, xform, ex_handler=c.nop_ex_handler):
+        return c.Chan(c.FixedBuffer(n), xform, ex_handler)
 
 
 class AbstractTestBufferedNonblocking:
@@ -435,6 +458,10 @@ class AbstractTestUnbufferedBlocking:
     def test_xform_exception(self):
         with self.assertRaises(TypeError):
             self.chan(None, xf.cat)
+
+    def test_ex_handler_exception(self):
+        with self.assertRaises(TypeError):
+            self.chan(ex_handler=identity)
 
 
 class TestUnbufferedBlockingChan(unittest.TestCase,
