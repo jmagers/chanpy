@@ -52,22 +52,6 @@ class TestAsync(unittest.TestCase):
 
         asyncio.run(main())
 
-    def test_nonblocking_unsuccessful_get(self):
-        async def main():
-            ch = chan()
-            self.assertIsNone(await ch.a_get(block=False))
-
-        asyncio.run(main())
-
-    def test_nonblocking_successful_put(self):
-        ch = chan(1)
-
-        async def main():
-            return await ch.a_put('success', block=False)
-
-        self.assertIs(asyncio.run(main()), True)
-        self.assertEqual(ch.t_get(), 'success')
-
     def test_go_from_different_thread(self):
         def getter_thread(go, ch):
             async def getter():
@@ -258,10 +242,10 @@ class AbstractTestXform:
         ch.close()
         self.assertEqual(list(ch), [1, 2, 3])
 
-    def test_xform_unsuccessful_nonblocking_put_overfilled_buffer(self):
+    def test_xform_unsuccessful_offer_overfilled_buffer(self):
         ch = self.chan(1, xf.cat)
         ch.t_put([1, 2])
-        self.assertIs(ch.t_put([1], block=False), False)
+        self.assertIs(ch.offer([1]), False)
 
     def test_unsuccessful_transformation_to_none(self):
         ch = self.chan(1, xf.map(lambda _: None))
@@ -313,55 +297,55 @@ class TestXformBufferedChan(unittest.TestCase, AbstractTestXform):
 
 
 class AbstractTestBufferedNonblocking:
-    def test_unsuccessful_nonblocking_put_none(self):
+    def test_unsuccessful_offer_none(self):
         with self.assertRaises(TypeError):
-            self.chan(1).t_put(None, block=False)
+            self.chan(1).offer(None)
 
-    def test_successful_nonblocking_get(self):
+    def test_successful_poll(self):
         ch = self.chan(1)
         threading.Thread(target=ch.t_put, args=['success']).start()
         time.sleep(0.1)
-        self.assertEqual(ch.t_get(block=False), 'success')
+        self.assertEqual(ch.poll(), 'success')
 
-    def test_successful_nonblocking_put(self):
+    def test_successful_offer(self):
         ch = self.chan(1)
 
         def thread():
             time.sleep(0.1)
-            ch.t_put('success', block=False)
+            ch.offer('success')
 
         threading.Thread(target=thread).start()
         self.assertEqual(ch.t_get(), 'success')
 
-    def test_unsuccessful_nonblocking_get(self):
-        self.assertIsNone(self.chan(1).t_get(block=False))
+    def test_unsuccessful_poll(self):
+        self.assertIsNone(self.chan(1).poll())
 
-    def test_unsuccessful_nonblocking_put(self):
+    def test_unsuccessful(self):
         ch = self.chan(1)
         ch.t_put('fill buffer')
-        self.assertIs(ch.t_put('failure', block=False), False)
+        self.assertIs(ch.offer('failure'), False)
 
-    def test_nonblocking_get_closed_empty_buffer(self):
+    def tespoll_closed_empty_buffer(self):
         ch = self.chan(1)
         ch.close()
-        self.assertIsNone(ch.t_get(block=False))
+        self.assertIsNone(ch.poll())
 
-    def test_nonblocking_get_closed_full_buffer(self):
+    def tespoll_closed_full_buffer(self):
         ch = self.chan(1)
         ch.t_put('success')
         ch.close()
-        self.assertEqual(ch.t_get(block=False), 'success')
+        self.assertEqual(ch.poll(), 'success')
 
-    def test_nonblocking_put_closed_empty_buffer(self):
+    def tesoffer_closed_empty_buffer(self):
         ch = self.chan(1)
         ch.close()
-        self.assertIs(ch.t_put('failure', block=False), False)
+        self.assertIs(ch.offer('failure'), False)
 
-    def test_nonblocking_put_closed_full_buffer(self):
+    def test_closed_full_buffer(self):
         ch = self.chan(1)
         ch.t_put('fill buffer')
         ch.close()
-        self.assertIs(ch.t_put('failure', block=False), False)
+        self.assertIs(ch.offer('failure'), False)
 
 
 class TestBufferedNonBlockingChan(unittest.TestCase,
@@ -472,41 +456,41 @@ class TestUnbufferedBlockingChan(unittest.TestCase,
 
 
 class AbstractTestUnbufferedNonblocking:
-    def test_unsuccessful_nonblocking_put_none(self):
+    def test_unsuccessful_offer_none(self):
         with self.assertRaises(TypeError):
-            self.chan().t_put(None, block=False)
+            self.chan().offer(None)
 
-    def test_successful_nonblocking_get(self):
+    def test_successful_poll(self):
         ch = self.chan()
         threading.Thread(target=ch.t_put, args=['success']).start()
         time.sleep(0.1)
-        self.assertEqual(ch.t_get(block=False), 'success')
+        self.assertEqual(ch.poll(), 'success')
 
-    def test_successful_nonblocking_put(self):
+    def test_successful_offer(self):
         ch = self.chan()
 
         def thread():
             time.sleep(0.1)
-            ch.t_put('success', block=False)
+            ch.offer('success')
 
         threading.Thread(target=thread).start()
         self.assertEqual(ch.t_get(), 'success')
 
-    def test_unsuccessful_nonblocking_get(self):
-        self.assertIsNone(self.chan().t_get(block=False))
+    def test_unsuccessful_poll(self):
+        self.assertIsNone(self.chan().poll())
 
-    def test_unsuccessful_nonblocking_put(self):
-        self.assertIs(self.chan().t_put('failure', block=False), False)
+    def test_unsuccessful_offer(self):
+        self.assertIs(self.chan().offer('failure'), False)
 
-    def test_nonblocking_get_after_close(self):
+    def tespoll_after_close(self):
         ch = self.chan()
         ch.close()
-        self.assertIsNone(ch.t_get(block=False))
+        self.assertIsNone(ch.poll())
 
-    def test_nonblocking_put_after_close(self):
+    def tesoffer_after_close(self):
         ch = self.chan()
         ch.close()
-        self.assertIs(ch.t_put('failure', block=False), False)
+        self.assertIs(ch.offer('failure'), False)
 
 
 class TestUnbufferedNonblockingChan(unittest.TestCase,
@@ -550,7 +534,7 @@ class TestPromiseChan(unittest.TestCase):
         ch = c.promise_chan(xf.partitionAll(3))
         self.assertIs(ch.t_put(1), True)
         self.assertIs(ch.t_put(2), True)
-        self.assertIsNone(ch.t_get(block=False))
+        self.assertIsNone(ch.poll())
         ch.close()
         self.assertEqual(ch.t_get(), (1, 2))
         self.assertEqual(ch.t_get(), (1, 2))
@@ -997,7 +981,7 @@ class TestMultAsyncio(unittest.TestCase):
             await src.a_put('item2')
             await dest1.a_get()
             await asyncio.sleep(0.1)
-            self.assertIsNone(await dest2.a_get(block=False))
+            self.assertIsNone(dest2.poll())
             src.close()
 
         asyncio.run(main())
@@ -1015,8 +999,8 @@ class TestMultAsyncio(unittest.TestCase):
             m.untap_all()
             self.assertIs(await src.a_put('dropMe'), True)
             await asyncio.sleep(0.1)
-            self.assertIsNone(await dest1.a_get(block=False))
-            self.assertIsNone(await dest2.a_get(block=False))
+            self.assertIsNone(dest1.poll())
+            self.assertIsNone(dest2.poll())
 
         asyncio.run(main())
 
@@ -1040,7 +1024,7 @@ class TestMultAsyncio(unittest.TestCase):
             await src.a_put('item')
             await dest1.a_get()
             await asyncio.sleep(0.1)
-            self.assertIs(await src.a_put('failure', block=False), False)
+            self.assertIs(src.offer('failure'), False)
             await dest2.a_get()
             src.close()
 
@@ -1107,7 +1091,7 @@ class TestMultThread(unittest.TestCase):
             threading.Thread(target=thread,
                              args=(go, src, dest1, dest2)).start()
             await asyncio.sleep(0.1)
-            self.assertIsNone(await dest2.a_get(block=False))
+            self.assertIsNone(dest2.poll())
             src.close()
 
         asyncio.run(main())
@@ -1130,8 +1114,8 @@ class TestMultThread(unittest.TestCase):
             await asyncio.sleep(0.1)
             self.assertIs(await src.a_put('dropMe'), True)
             await asyncio.sleep(0.1)
-            self.assertIsNone(await dest1.a_get(block=False))
-            self.assertIsNone(await dest2.a_get(block=False))
+            self.assertIsNone(dest1.poll())
+            self.assertIsNone(dest2.poll())
 
         asyncio.run(main())
 
@@ -1158,7 +1142,7 @@ class TestMultThread(unittest.TestCase):
             src.t_put('item')
             dest1.t_get()
             time.sleep(0.1)
-            self.assertIs(src.t_put('failure', block=False), False)
+            self.assertIs(src.offer('failure'), False)
             dest2.t_get()
             src.close()
             complete.close()
@@ -1263,7 +1247,7 @@ class TestMixAsyncio(unittest.TestCase):
             self.assertEqual(await to_ch.a_get(), 'from_ch2')
             await from_ch1.a_put('remain in from_ch1')
             await asyncio.sleep(0.1)
-            self.assertIsNone(await to_ch.a_get(block=False))
+            self.assertIsNone(to_ch.poll())
             self.assertEqual(await from_ch1.a_get(), 'remain in from_ch1')
 
         asyncio.run(main())
@@ -1284,7 +1268,7 @@ class TestMixAsyncio(unittest.TestCase):
             await from_ch1.a_put('ignore from_ch1 item')
             await from_ch2.a_put('ignore from_ch2 item')
             await asyncio.sleep(0.1)
-            self.assertIsNone(await to_ch.a_get(block=False))
+            self.assertIsNone(to_ch.poll())
 
         asyncio.run(main())
 
@@ -1299,14 +1283,14 @@ class TestMixAsyncio(unittest.TestCase):
             await unmuted_ch.a_put('not muted')
             self.assertEqual(await to_ch.a_get(), 'not muted')
             await muted_ch.a_put('mute me')
-            self.assertIsNone(await to_ch.a_get(block=False))
+            self.assertIsNone(to_ch.poll())
 
             m.toggle({unmuted_ch: {'mute': True},
                       muted_ch: {'mute': False}})
             await muted_ch.a_put('the mute can now talk')
             self.assertEqual(await to_ch.a_get(), 'the mute can now talk')
             await unmuted_ch.a_put('i made a deal with Ursula')
-            self.assertIsNone(await to_ch.a_get(block=False))
+            self.assertIsNone(to_ch.poll())
 
         asyncio.run(main())
 
@@ -1373,7 +1357,7 @@ class TestMixAsyncio(unittest.TestCase):
             self.assertEqual(await to_ch.a_get(), 'solo_ch2 not muted')
             await non_solo_ch.a_put('drop me')
             await asyncio.sleep(0.1)
-            self.assertIsNone(await to_ch.a_get(block=False))
+            self.assertIsNone(to_ch.poll())
 
             m.toggle({solo_ch1: {'solo': False},
                       solo_ch2: {'solo': False}})
@@ -1535,7 +1519,7 @@ class TestPipe(unittest.TestCase):
             self.assertEqual(await dest.a_get(), 'intoDest2')
             self.assertIsNone(await dest.a_get())
             await asyncio.sleep(0.1)
-            self.assertIsNone(await src.a_get(block=False))
+            self.assertIsNone(src.poll())
 
         asyncio.run(main())
 
