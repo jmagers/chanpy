@@ -489,6 +489,54 @@ class TestUnbufferedNonblockingChan(unittest.TestCase,
         return c.Chan()
 
 
+class TestPromiseChan(unittest.TestCase):
+    def test_multiple_gets(self):
+        ch = c.promise_chan()
+        self.assertIs(ch.t_put('success'), True)
+        self.assertEqual(ch.t_get(), 'success')
+        self.assertEqual(ch.t_get(), 'success')
+
+    def test_multiple_puts(self):
+        ch = c.promise_chan()
+        self.assertIs(ch.t_put('success'), True)
+        self.assertIs(ch.t_put('drop me'), True)
+
+    def test_after_close(self):
+        ch = c.promise_chan()
+        ch.t_put('success')
+        ch.close()
+        self.assertIs(ch.t_put('failure'), False)
+        self.assertIs(ch.t_put('failure'), False)
+        self.assertEqual(ch.t_get(), 'success')
+        self.assertEqual(ch.t_get(), 'success')
+
+    def test_xform_filter(self):
+        ch = c.promise_chan(xf.filter(lambda x: x > 0))
+        self.assertIs(ch.t_put(-1), True)
+        self.assertIs(ch.t_put(1), True)
+        self.assertIs(ch.t_put(2), True)
+
+        self.assertEqual(ch.t_get(), 1)
+        self.assertEqual(ch.t_get(), 1)
+
+    def test_xform_complete_flush(self):
+        ch = c.promise_chan(xf.partitionAll(3))
+        self.assertIs(ch.t_put(1), True)
+        self.assertIs(ch.t_put(2), True)
+        self.assertIsNone(ch.t_get(block=False))
+        ch.close()
+        self.assertEqual(ch.t_get(), (1, 2))
+        self.assertEqual(ch.t_get(), (1, 2))
+        self.assertIs(ch.t_put('drop me'), False)
+
+    def test_xform_with_reduced_return(self):
+        ch = c.promise_chan(xf.take(1))
+        self.assertIs(ch.t_put('success'), True)
+        self.assertIs(ch.t_put('failure'), False)
+        self.assertEqual(ch.t_get(), 'success')
+        self.assertEqual(ch.t_get(), 'success')
+
+
 class AbstractTestAlts:
     def _confirm_chans_not_closed(self, *chs):
         for ch in chs:

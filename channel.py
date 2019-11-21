@@ -45,6 +45,24 @@ class SlidingBuffer(FixedBuffer):
         return False
 
 
+class PromiseBuffer:
+    def __init__(self):
+        self._value = None
+
+    def get(self):
+        return self._value
+
+    def put(self, item):
+        if self._value is None:
+            self._value = item
+
+    def is_full(self):
+        return False
+
+    def __len__(self):
+        return 0 if self._value is None else 1
+
+
 class Promise:
     def __init__(self):
         self._lock = threading.Lock()
@@ -352,6 +370,10 @@ def chan(buf=None, xform=None):
     return Chan(new_buf, identity if xform is None else xform)
 
 
+def promise_chan(xform=None):
+    return chan(PromiseBuffer(), xform)
+
+
 class _AltHandler:
     def __init__(self, flag, cb):
         self._flag = flag
@@ -494,13 +516,11 @@ class Go:
             return False
         return loop is self._loop
 
-    def __call__(self, coro, daemon=False):
+    def __call__(self, coro):
         if self.in_loop():
             asyncio.create_task(coro)
         else:
             asyncio.run_coroutine_threadsafe(coro, self._loop)
-
-        # TODO: Add daemon feature
 
     def get(self, coro):
         ch = chan(1)
