@@ -1539,6 +1539,46 @@ class TestMerge(unittest.TestCase):
         asyncio.run(main())
 
 
+class TestSplit(unittest.TestCase):
+    def test_chans_close_with_closed_source(self):
+        async def main():
+            go = c.Go()
+            src_ch = chan()
+            src_ch.close()
+            t_ch, f_ch = c.split(go, lambda _: True, src_ch)
+            self.assertIsNone(await t_ch.a_get())
+            self.assertIsNone(await f_ch.a_get())
+
+        asyncio.run(main())
+
+    def test_true_false_chans(self):
+        async def main():
+            go = c.Go()
+            t_ch, f_ch = c.split(go,
+                                 lambda x: x % 2 == 0,
+                                 c.to_chan(go, [1, 2, 3, 4]))
+            self.assertEqual(await f_ch.a_get(), 1)
+            self.assertEqual(await t_ch.a_get(), 2)
+            self.assertEqual(await f_ch.a_get(), 3)
+            self.assertEqual(await t_ch.a_get(), 4)
+            self.assertIsNone(await f_ch.a_get())
+            self.assertIsNone(await t_ch.a_get())
+
+        asyncio.run(main())
+
+    def test_bufs(self):
+        async def main():
+            go = c.Go()
+            t_ch, f_ch = c.split(go,
+                                 lambda x: x % 2 == 0,
+                                 c.to_chan(go, [1, 2, 3, 4, 5]),
+                                 2, 3)
+            self.assertEqual(await c.a_list(t_ch), [2, 4])
+            self.assertEqual(await c.a_list(f_ch), [1, 3, 5])
+
+        asyncio.run(main())
+
+
 class TestAsyncPut(unittest.TestCase):
     def test_return_true_if_buffer_not_full(self):
         self.assertIs(c.async_put(chan(1), 'val'), True)

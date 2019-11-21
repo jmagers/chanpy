@@ -780,3 +780,19 @@ class Mix:
 
 def mix(go, ch):
     return Mix(go, ch)
+
+
+def split(go, pred, ch, t_buf=None, f_buf=None):
+    true_ch, false_ch = chan(t_buf), chan(f_buf)
+
+    async def proc():
+        async for x in ch:
+            if pred(x):
+                await true_ch.a_put(x)
+            else:
+                await false_ch.a_put(x)
+        true_ch.close()
+        false_ch.close()
+
+    go(proc())
+    return true_ch, false_ch
