@@ -1190,6 +1190,181 @@ class TestMultThread(unittest.TestCase):
         asyncio.run(main())
 
 
+class TestPubAsyncio(unittest.TestCase):
+    def test_sub(self):
+        async def main():
+            from_ch = chan(1)
+            a1_ch, a2_ch, b1_ch, b2_ch = chan(), chan(), chan(), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, lambda x: x[0])
+            p.sub('a', a1_ch)
+            p.sub('a', a2_ch)
+            p.sub('b', b1_ch)
+            p.sub('b', b2_ch)
+
+            await from_ch.a_put('apple')
+            self.assertEqual(await a1_ch.a_get(), 'apple')
+            self.assertEqual(await a2_ch.a_get(), 'apple')
+            await from_ch.a_put('bat')
+            self.assertEqual(await b1_ch.a_get(), 'bat')
+            self.assertEqual(await b2_ch.a_get(), 'bat')
+
+            await from_ch.a_put('ant')
+            self.assertEqual(await a1_ch.a_get(), 'ant')
+            self.assertEqual(await a2_ch.a_get(), 'ant')
+            await from_ch.a_put('bear')
+            self.assertEqual(await b1_ch.a_get(), 'bear')
+            self.assertEqual(await b2_ch.a_get(), 'bear')
+
+        asyncio.run(main())
+
+    def test_unsub(self):
+        async def main():
+            from_ch = chan(1)
+            a1_ch, a2_ch, b_ch = chan(), chan(), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, lambda x: x[0])
+            p.sub('a', a1_ch)
+            p.sub('a', a2_ch)
+            p.sub('b', b_ch)
+
+            p.unsub('a', a2_ch)
+            await from_ch.a_put('apple')
+            self.assertEqual(await a1_ch.a_get(), 'apple')
+            await from_ch.a_put('bat')
+            self.assertEqual(await b_ch.a_get(), 'bat')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(a2_ch.poll())
+
+            p.sub('a', a2_ch)
+            from_ch.a_put('air')
+            self.assertEqual(await a2_ch.a_get(), 'air')
+
+        asyncio.run(main())
+
+    def test_unsub_nonexistent_topic(self):
+        async def main():
+            from_ch, to_ch = chan(1), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, identity)
+            p.sub('a', to_ch)
+
+            p.unsub('b', to_ch)
+            await from_ch.a_put('a')
+            self.assertEqual(await to_ch.a_get(), 'a')
+
+        asyncio.run(main())
+
+    def test_unsub_nonexistent_ch(self):
+        async def main():
+            from_ch, to_ch = chan(1), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, identity)
+            p.sub('a', to_ch)
+
+            p.unsub('b', chan())
+            await from_ch.a_put('a')
+            self.assertEqual(await to_ch.a_get(), 'a')
+
+        asyncio.run(main())
+
+    def test_unsub_all(self):
+        async def main():
+            from_ch, a_ch, b_ch = chan(2), chan(), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, lambda x: x[0])
+            p.sub('a', a_ch)
+            p.sub('b', b_ch)
+
+            p.unsub_all()
+            await from_ch.a_put('apple')
+            await from_ch.a_put('bat')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(from_ch.poll())
+            self.assertIsNone(a_ch.poll())
+            self.assertIsNone(b_ch.poll())
+
+            p.sub('a', a_ch)
+            await from_ch.a_put('air')
+            self.assertEqual(await a_ch.a_get(), 'air')
+
+        asyncio.run(main())
+
+    def test_unsub_all_topic(self):
+        async def main():
+            from_ch = chan(2)
+            a1_ch, a2_ch, b_ch = chan(), chan(), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, lambda x: x[0])
+            p.sub('a', a1_ch)
+            p.sub('a', a2_ch)
+            p.sub('b', b_ch)
+
+            p.unsub_all('a')
+            await from_ch.a_put('apple')
+            await from_ch.a_put('bat')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(a1_ch.poll())
+            self.assertIsNone(a2_ch.poll())
+            self.assertEqual(b_ch.poll(), 'bat')
+            self.assertIsNone(from_ch.poll())
+
+            p.sub('a', a1_ch)
+            await from_ch.a_put('air')
+            self.assertEqual(await a1_ch.a_get(), 'air')
+
+        asyncio.run(main())
+
+    def test_only_correct_subs_get_closed(self):
+        async def main():
+            from_ch, close_ch, open_ch = chan(1), chan(1), chan(1)
+            go = c.Go()
+            p = c.pub(go, from_ch, identity)
+            p.sub('close', close_ch)
+            p.sub('open', open_ch, close=False)
+
+            from_ch.close()
+            await asyncio.sleep(0.1)
+            self.assertIs(await close_ch.a_put('fail'), False)
+            self.assertIs(await open_ch.a_put('success'), True)
+
+        asyncio.run(main())
+
+    def test_buf_fn(self):
+        async def main():
+            from_ch = chan()
+            a_ch, b_ch = chan(), chan()
+            go = c.Go()
+            p = c.pub(go, from_ch, lambda x: x[0],
+                      lambda x: None if x == 'a' else 2)
+
+            p.sub('a', a_ch)
+            p.sub('b', b_ch)
+            await from_ch.a_put('a1')
+            await from_ch.a_put('a2')
+            await asyncio.sleep(0.1)
+            self.assertIs(from_ch.offer('a fail'), False)
+            self.assertEqual(await a_ch.a_get(), 'a1')
+            self.assertEqual(await a_ch.a_get(), 'a2')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(a_ch.poll())
+
+            await from_ch.a_put('b1')
+            await from_ch.a_put('b2')
+            await from_ch.a_put('b3')
+            await from_ch.a_put('b4')
+            await asyncio.sleep(0.1)
+            self.assertIs(from_ch.offer('b fail'), False)
+            self.assertEqual(await b_ch.a_get(), 'b1')
+            self.assertEqual(await b_ch.a_get(), 'b2')
+            self.assertEqual(await b_ch.a_get(), 'b3')
+            self.assertEqual(await b_ch.a_get(), 'b4')
+            await asyncio.sleep(0.1)
+            self.assertIsNone(b_ch.poll())
+
+        asyncio.run(main())
+
+
 class TestMixAsyncio(unittest.TestCase):
     def test_toggle_exceptions(self):
         async def main():

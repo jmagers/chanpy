@@ -6,6 +6,10 @@ from genericfuncs import multiArity, isReduced
 from toolz import identity
 
 
+class _UNDEFINED:
+    pass
+
+
 class FixedBuffer:
     def __init__(self, maxsize):
         if not isinstance(maxsize, int) or maxsize <= 0:
@@ -102,6 +106,12 @@ class FnHandler:
         return self._f
 
 
+def _create_future_deliver(future):
+    def deliver(x):
+        future.get_loop().call_soon_threadsafe(lambda: future.set_result(x))
+    return deliver
+
+
 _MAX_QUEUE_SIZE = 1024
 
 
@@ -172,13 +182,8 @@ class Chan:
 
     @staticmethod
     def _a_op(op, block):
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-
-        def deliver(result):
-            loop.call_soon_threadsafe(lambda: future.set_result(result))
-
-        ret = op(FnHandler(deliver, block))
+        future = asyncio.get_running_loop().create_future()
+        ret = op(FnHandler(_create_future_deliver(future), block))
         if ret is not None:
             future.set_result(ret[0])
         return future
@@ -458,13 +463,8 @@ def _alts(deliver, ports, priority):
 
 
 def a_alts(ports, priority=False):
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-
-    def deliver(result):
-        loop.call_soon_threadsafe(lambda: future.set_result(result))
-
-    ret = _alts(deliver, ports, priority)
+    future = asyncio.get_running_loop().create_future()
+    ret = _alts(_create_future_deliver(future), ports, priority)
     if ret is not None:
         future.set_result(ret)
     return future
@@ -678,6 +678,58 @@ class Mult:
 
 def mult(go, ch):
     return Mult(go, ch)
+
+
+class Pub:
+    def __init__(self, go, ch, topic_fn, buf_fn=lambda _: None):
+        self._go = go
+        self._src_ch = ch
+        self._topic_fn = topic_fn
+        self._buf_fn = buf_fn
+        self._mults = {}
+        go(self._proc())
+
+    def sub(self, topic, ch, close=True):
+        def _sub():
+            if topic not in self._mults:
+                self._mults[topic] = mult(self._go, chan(self._buf_fn(topic)))
+            self._mults[topic].tap(ch, close)
+        self._go.run_callback(_sub)
+
+    def unsub(self, topic, ch):
+        def _unsub():
+            m = self._mults.get(topic, None)
+            if m is not None:
+                m.untap(ch)
+                if len(m._consumers) == 0:
+                    m.muxch.close()
+                    self._mults.pop(topic)
+        self._go.run_callback(_unsub)
+
+    def unsub_all(self, topic=_UNDEFINED):
+        def _unsub_all():
+            topics = tuple(self._mults) if topic is _UNDEFINED else [topic]
+            for t in topics:
+                m = self._mults.get(t, None)
+                if m is not None:
+                    m.untap_all()
+                    m.muxch.close()
+                    self._mults.pop(t)
+        self._go.run_callback(_unsub_all)
+
+    async def _proc(self):
+        async for item in self._src_ch:
+            m = self._mults.get(self._topic_fn(item), None)
+            if m is not None:
+                await m.muxch.a_put(item)
+
+        for m in self._mults.values():
+            m.muxch.close()
+        self._mults.clear()
+
+
+def pub(go, ch, topic_fn, buf_fn=lambda _: None):
+    return Pub(go, ch, topic_fn, buf_fn)
 
 
 class Mix:
