@@ -646,6 +646,10 @@ class Mult:
         self._is_closed = False
         go(self._proc())
 
+    @property
+    def muxch(self):
+        return self._src_ch
+
     def tap(self, ch, close=True):
         def _tap():
             if self._is_closed and close:
@@ -660,23 +664,16 @@ class Mult:
         self._go.run_callback(self._consumers.clear)
 
     async def _proc(self):
-        while True:
-            # Get next item to distribute. Close consumers when src_ch closes.
-            item = await self._src_ch.a_get()
-            if item is None:
-                self._is_closed = True
-                for consumer, close in self._consumers.items():
-                    if close:
-                        consumer.close()
-                break
-
-            # Distribute item to consumers
-            remaining_chs = {ch: item for ch in self._consumers.keys()}
-            while len(remaining_chs) > 0:
-                is_open, ch = await a_alts(remaining_chs.items())
-                if not is_open:
+        async for item in self._src_ch:
+            pending_puts = [(ch, ch.a_put(item)) for ch in self._consumers]
+            for ch, pending_put in pending_puts:
+                if not await pending_put:
                     self._consumers.pop(ch, None)
-                remaining_chs.pop(ch)
+
+        self._is_closed = True
+        for consumer, close in self._consumers.items():
+            if close:
+                consumer.close()
 
 
 def mult(go, ch):
@@ -686,10 +683,15 @@ def mult(go, ch):
 class Mix:
     def __init__(self, go, ch):
         self._go = go
+        self._to_ch = ch
         self._state_ch = chan(SlidingBuffer(1))
         self._state_map = {}
         self._solo_mode = 'mute'
-        go(self._proc(ch))
+        go(self._proc())
+
+    @property
+    def muxch(self):
+        return self._to_ch
 
     def toggle(self, state_map):
         for ch, state in state_map.items():
@@ -760,7 +762,7 @@ class Mix:
             self._state_ch.t_put({'live_chs': soloed_chs,
                                   'muted_chs': muted_chs.union(live_chs)})
 
-    async def _proc(self, to_ch):
+    async def _proc(self):
         live_chs, muted_chs = set(), set()
         while True:
             data_chs = list(live_chs.union(muted_chs))
@@ -774,7 +776,7 @@ class Mix:
                 muted_chs.discard(ch)
             elif ch in muted_chs:
                 pass
-            elif not await to_ch.a_put(val):
+            elif not await self._to_ch.a_put(val):
                 break
 
 
