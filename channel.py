@@ -135,7 +135,7 @@ class FlagHandler:
 class FlagFuture(asyncio.Future):
     def __init__(self, flag):
         self.__flag = flag
-        self.__result_prom = Promise()  # TODO: Remove promise
+        self.__result = None
         super().__init__(loop=asyncio.get_running_loop())
 
     def set_result(self, result):
@@ -152,7 +152,7 @@ class FlagFuture(asyncio.Future):
                 # This case is when value has been committed but
                 # future hasn't been set because call_soon_threadsafe()
                 # callback hasn't been invoked yet
-                super().set_result(self.__result_prom.deref())  # TODO: - prom
+                super().set_result(self.__result)
         return super().cancel()
 
 
@@ -164,7 +164,7 @@ def _create_future_deliver_fn(future):
             assert future.result() is result
 
     def deliver(result):
-        future._FlagFuture__result_prom.deliver(result)  # TODO: - prom
+        future._FlagFuture__result = result
         future.get_loop().call_soon_threadsafe(lambda: set_result(result))
 
     return deliver
@@ -284,10 +284,10 @@ class Chan:
                     if handler.is_active and taker.is_active:
                         handler.commit()
                         taker_cb = taker.commit()
+                        taker_cb(val)
                     handler.release()
                     taker.release()
                     if taker_cb is not None:
-                        taker_cb(val)  # TODO: Place under lock
                         return True,
 
             if not handler.is_blockable:
@@ -318,13 +318,10 @@ class Chan:
                 while len(self._puts) > 0 and not self._buf.is_full():
                     putter, val = self._puts.popleft()
                     putter.acquire()
-                    putter_cb = None
                     if putter.is_active:
-                        putter_cb = putter.commit()
-                    putter.release()
-                    if putter_cb is not None:
+                        putter.commit()(True)
                         self._buf_put(val)
-                        putter_cb(True)  # TODO: Place under lock
+                    putter.release()
 
                 self._complete_xform_if_ready()
                 return ret,
@@ -343,10 +340,10 @@ class Chan:
                     if handler.is_active and putter.is_active:
                         handler.commit()
                         putter_cb = putter.commit()
+                        putter_cb(True)
                     handler.release()
                     putter.release()
                     if putter_cb is not None:
-                        putter_cb(True)  # TODO: Place under lock
                         return val,
 
             if self._is_closed or not handler.is_blockable:
@@ -378,12 +375,9 @@ class Chan:
             # buf. To ensure this, remove all pending puts and close ch.
             for putter, _ in self._puts:
                 putter.acquire()
-                put_cb = None
                 if putter.is_active:
-                    put_cb = putter.commit()
+                    putter.commit()(False)
                 putter.release()
-                if put_cb is not None:
-                    put_cb(False)  # TODO: Place under lock
             self._puts.clear()
             self._close()
 
@@ -391,12 +385,9 @@ class Chan:
         while len(self._takes) > 0 and len(self._buf) > 0:
             taker = self._takes.popleft()
             taker.acquire()
-            taker_cb = None
             if taker.is_active:
-                taker_cb = taker.commit()
+                taker.commit()(self._buf.get())
             taker.release()
-            if taker_cb is not None:
-                taker_cb(self._buf.get())  # TODO: Place under lock
 
     def _complete_xform_if_ready(self):
         """Calls the xform completion arity exactly once iff all input has been
@@ -419,12 +410,9 @@ class Chan:
         # No-op if there are pending puts or buffer isn't empty
         for taker in self._takes:
             taker.acquire()
-            take_cb = None
             if taker.is_active:
-                take_cb = taker.commit()
+                taker.commit()(None)
             taker.release()
-            if take_cb is not None:
-                take_cb(None)  # TODO: Place under lock
         self._takes.clear()
 
     def __iter__(self):
