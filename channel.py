@@ -89,9 +89,13 @@ class Promise:
             return self._value
 
 
+def create_flag():
+    return {'lock': threading.Lock(), 'is_active': True}
+
+
 class FnHandler:
-    def __init__(self, f, is_blockable=True):
-        self._f = f
+    def __init__(self, cb, is_blockable=True):
+        self._cb = cb
         self.is_blockable = is_blockable
         self.lock_id = 0
         self.is_active = True
@@ -103,12 +107,66 @@ class FnHandler:
         pass
 
     def commit(self):
-        return self._f
+        return self._cb
 
 
-def _create_future_deliver(future):
-    def deliver(x):
-        future.get_loop().call_soon_threadsafe(lambda: future.set_result(x))
+class FlagHandler:
+    def __init__(self, flag, cb, is_blockable=True):
+        self._flag = flag
+        self._cb = cb
+        self.is_blockable = is_blockable
+        self.lock_id = id(flag)
+
+    @property
+    def is_active(self):
+        return self._flag['is_active']
+
+    def acquire(self):
+        self._flag['lock'].acquire()
+
+    def release(self):
+        self._flag['lock'].release()
+
+    def commit(self):
+        self._flag['is_active'] = False
+        return self._cb
+
+
+class FlagFuture(asyncio.Future):
+    def __init__(self, flag):
+        self.__flag = flag
+        self.__result_prom = Promise()  # TODO: Remove promise
+        super().__init__(loop=asyncio.get_running_loop())
+
+    def set_result(self, result):
+        assert False
+
+    def set_exception(self, exception):
+        assert False
+
+    def cancel(self):
+        with self.__flag['lock']:
+            if self.__flag['is_active']:
+                self.__flag['is_active'] = False
+            elif not super().done():
+                # This case is when value has been committed but
+                # future hasn't been set because call_soon_threadsafe()
+                # callback hasn't been invoked yet
+                super().set_result(self.__result_prom.deref())  # TODO: - prom
+        return super().cancel()
+
+
+def _create_future_deliver_fn(future):
+    def set_result(result):
+        try:
+            asyncio.Future.set_result(future, result)
+        except asyncio.InvalidStateError:
+            assert future.result() is result
+
+    def deliver(result):
+        future._FlagFuture__result_prom.deliver(result)  # TODO: - prom
+        future.get_loop().call_soon_threadsafe(lambda: set_result(result))
+
     return deliver
 
 
@@ -181,11 +239,12 @@ class Chan:
             self._close()
 
     @staticmethod
-    def _a_op(op, block):
-        future = asyncio.get_running_loop().create_future()
-        ret = op(FnHandler(_create_future_deliver(future), block))
+    def _a_op(op, wait):
+        flag = create_flag()
+        future = FlagFuture(flag)
+        ret = op(FlagHandler(flag, _create_future_deliver_fn(future), wait))
         if ret is not None:
-            future.set_result(ret[0])
+            asyncio.Future.set_result(future, ret[0])
         return future
 
     def _put(self, handler, val):
@@ -228,7 +287,7 @@ class Chan:
                     handler.release()
                     taker.release()
                     if taker_cb is not None:
-                        taker_cb(val)
+                        taker_cb(val)  # TODO: Place under lock
                         return True,
 
             if not handler.is_blockable:
@@ -265,7 +324,7 @@ class Chan:
                     putter.release()
                     if putter_cb is not None:
                         self._buf_put(val)
-                        putter_cb(True)
+                        putter_cb(True)  # TODO: Place under lock
 
                 self._complete_xform_if_ready()
                 return ret,
@@ -287,7 +346,7 @@ class Chan:
                     handler.release()
                     putter.release()
                     if putter_cb is not None:
-                        putter_cb(True)
+                        putter_cb(True)  # TODO: Place under lock
                         return val,
 
             if self._is_closed or not handler.is_blockable:
@@ -324,7 +383,7 @@ class Chan:
                     put_cb = putter.commit()
                 putter.release()
                 if put_cb is not None:
-                    put_cb(False)
+                    put_cb(False)  # TODO: Place under lock
             self._puts.clear()
             self._close()
 
@@ -337,7 +396,7 @@ class Chan:
                 taker_cb = taker.commit()
             taker.release()
             if taker_cb is not None:
-                taker_cb(self._buf.get())
+                taker_cb(self._buf.get())  # TODO: Place under lock
 
     def _complete_xform_if_ready(self):
         """Calls the xform completion arity exactly once iff all input has been
@@ -365,7 +424,7 @@ class Chan:
                 take_cb = taker.commit()
             taker.release()
             if take_cb is not None:
-                take_cb(None)
+                take_cb(None)  # TODO: Place under lock
         self._takes.clear()
 
     def __iter__(self):
@@ -404,29 +463,7 @@ def promise_chan(xform=None):
     return chan(PromiseBuffer(), xform)
 
 
-class _AltHandler:
-    def __init__(self, flag, cb):
-        self._flag = flag
-        self._cb = cb
-        self.lock_id = id(flag)
-        self.is_blockable = True
-
-    @property
-    def is_active(self):
-        return self._flag['is_active']
-
-    def acquire(self):
-        self._flag['lock'].acquire()
-
-    def release(self):
-        self._flag['lock'].release()
-
-    def commit(self):
-        self._flag['is_active'] = False
-        return self._cb
-
-
-def _alts(deliver, ports, priority):
+def _alts(flag, deliver_fn, ports, priority):
     ports = list(ports)
     if len(ports) == 0:
         raise ValueError('alts must have at least one channel operation')
@@ -447,10 +484,8 @@ def _alts(deliver, ports, priority):
             raise ValueError('cannot get and put to same channel')
         ops[ch] = op
 
-    flag = {'lock': threading.Lock(), 'is_active': True}
-
     def create_handler(ch):
-        return _AltHandler(flag, lambda val: deliver((val, ch)))
+        return FlagHandler(flag, lambda val: deliver_fn((val, ch)))
 
     # Start ops
     for ch, op in ops.items():
@@ -463,16 +498,17 @@ def _alts(deliver, ports, priority):
 
 
 def a_alts(ports, priority=False):
-    future = asyncio.get_running_loop().create_future()
-    ret = _alts(_create_future_deliver(future), ports, priority)
+    flag = create_flag()
+    future = FlagFuture(flag)
+    ret = _alts(flag, _create_future_deliver_fn(future), ports, priority)
     if ret is not None:
-        future.set_result(ret)
+        asyncio.Future.set_result(future, ret)
     return future
 
 
 def t_alts(ports, priority=False):
     prom = Promise()
-    ret = _alts(prom.deliver, ports, priority)
+    ret = _alts(create_flag(), prom.deliver, ports, priority)
     return prom.deref() if ret is None else ret
 
 

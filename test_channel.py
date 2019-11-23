@@ -125,6 +125,78 @@ class TestAsync(unittest.TestCase):
 
         asyncio.run(main())
 
+    def test_successful_cancel_get(self):
+        async def main():
+            ch = chan()
+            get_future = ch.a_get()
+            self.assertIs(get_future.cancelled(), False)
+            self.assertIs(get_future.cancel(), True)
+            self.assertIs(get_future.cancelled(), True)
+            self.assertIs(ch.offer('reject me'), False)
+
+        asyncio.run(main())
+
+    def test_successful_cancel_put(self):
+        async def main():
+            ch = chan()
+            put_future = ch.a_put('cancel me')
+            self.assertIs(put_future.cancelled(), False)
+            self.assertIs(put_future.cancel(), True)
+            self.assertIs(put_future.cancelled(), True)
+            self.assertIsNone(ch.poll())
+
+        asyncio.run(main())
+
+    def test_successful_cancel_alts(self):
+        async def main():
+            ch = chan()
+            alts_future = c.a_alts([ch], priority=True)
+            self.assertIs(alts_future.cancelled(), False)
+            self.assertIs(alts_future.cancel(), True)
+            self.assertIs(alts_future.cancelled(), True)
+            self.assertIs(ch.offer('reject me'), False)
+
+        asyncio.run(main())
+
+    def test_unsuccessful_cancel_get(self):
+        async def main():
+            ch = chan()
+            get_future = ch.a_get()
+            self.assertIs(await ch.a_put('success'), True)
+
+            # cancel() will end up calling set_result() since
+            # set_result_threadsafe() callback won't have been called yet
+            self.assertIs(get_future.cancel(), False)
+            self.assertEqual(get_future.result(), 'success')
+
+        asyncio.run(main())
+
+    def test_unsuccessful_cancel_put(self):
+        async def main():
+            ch = chan()
+            put_future = ch.a_put('val')
+            self.assertEqual(await ch.a_get(), 'val')
+
+            # cancel() will end up calling set_result() since
+            # set_result_threadsafe() callback won't have been called yet
+            self.assertIs(put_future.cancel(), False)
+            self.assertIs(put_future.result(), True)
+
+        asyncio.run(main())
+
+    def test_unsuccessful_cancel_alts(self):
+        async def main():
+            success_ch, fail_ch = chan(), chan()
+            alts_future = c.a_alts([fail_ch, success_ch])
+            self.assertIs(await success_ch.a_put('success'), True)
+
+            # cancel() will end up calling set_result() since
+            # set_result_threadsafe() callback won't have been called yet
+            self.assertIs(alts_future.cancel(), False)
+            self.assertEqual(alts_future.result(), ('success', success_ch))
+
+        asyncio.run(main())
+
 
 class AbstractTestBufferedBlocking:
     def test_unsuccessful_blocking_put_none(self):
