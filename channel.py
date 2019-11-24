@@ -427,20 +427,18 @@ def is_chan(ch):
     return isinstance(ch, Chan)
 
 
-def chan(buf=None, xform=None, ex_handler=None):
+def chan(buf=None, xform=identity, ex_handler=nop_ex_handler):
     if buf is None:
-        if xform is not None:
+        if xform is not identity:
             raise TypeError('unbuffered channels cannot have an xform')
-        if ex_handler is not None:
+        if ex_handler is not nop_ex_handler:
             raise TypeError('unbuffered channels cannot have an ex_handler')
         return Chan()
     new_buf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return Chan(new_buf,
-                identity if xform is None else xform,
-                nop_ex_handler if ex_handler is None else ex_handler)
+    return Chan(new_buf, xform, ex_handler)
 
 
-def promise_chan(xform=None):
+def promise_chan(xform=identity):
     return chan(PromiseBuffer(), xform)
 
 
