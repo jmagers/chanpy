@@ -262,7 +262,7 @@ class AbstractTestBufferedBlocking:
         ch.t_put('one')
         ch.t_put('two')
         ch.close()
-        self.assertEqual(list(ch), ['one', 'two'])
+        self.assertEqual(c.t_list(ch), ['one', 'two'])
 
 
 class TestBufferedBlockingChan(unittest.TestCase,
@@ -312,7 +312,7 @@ class AbstractTestXform:
         ch = self.chan(1, xf.cat)
         ch.t_put([1, 2, 3])
         ch.close()
-        self.assertEqual(list(ch), [1, 2, 3])
+        self.assertEqual(c.t_list(ch), [1, 2, 3])
 
     def test_xform_unsuccessful_offer_overfilled_buffer(self):
         ch = self.chan(1, xf.cat)
@@ -329,14 +329,14 @@ class AbstractTestXform:
         for i in range(3):
             ch.t_put(i)
         ch.close()
-        self.assertEqual(list(ch), [(0, 1), (2,)])
+        self.assertEqual(c.t_list(ch), [(0, 1), (2,)])
 
     def test_close_does_not_flush_xform_with_pending_puts(self):
         ch = self.chan(1, xf.partitionAll(2))
         for i in range(3):
             c.async_put(ch, i)
         ch.close()
-        self.assertEqual(list(ch), [(0, 1), (2,)])
+        self.assertEqual(c.t_list(ch), [(0, 1), (2,)])
 
     def test_xform_ex_handler_non_none_return(self):
         def handler(e):
@@ -348,7 +348,7 @@ class AbstractTestXform:
         ch.t_put(0)
         ch.t_put(2)
         ch.close()
-        self.assertEqual(list(ch), [-12, 'zero', 6])
+        self.assertEqual(c.t_list(ch), [-12, 'zero', 6])
 
     def test_xform_ex_handler_none_return(self):
         def handler(e):
@@ -359,7 +359,7 @@ class AbstractTestXform:
         ch.t_put(0)
         ch.t_put(2)
         ch.close()
-        self.assertEqual(list(ch), [-12, 6])
+        self.assertEqual(c.t_list(ch), [-12, 6])
 
 
 class TestXformBufferedChan(unittest.TestCase, AbstractTestXform):
@@ -509,7 +509,7 @@ class AbstractTestUnbufferedBlocking:
         c.async_put(ch, 'one')
         c.async_put(ch, 'two')
         ch.close()
-        self.assertEqual(list(ch), ['one', 'two'])
+        self.assertEqual(c.t_list(ch), ['one', 'two'])
 
     def test_xform_exception(self):
         with self.assertRaises(TypeError):
@@ -967,7 +967,7 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
                          ('altsValue', ch))
         c.async_put(xformCh, 'secondTake')
         c.async_put(xformCh, 'dropMe')
-        self.assertEqual(list(xformCh), ['firstTake', 'secondTake'])
+        self.assertEqual(c.t_list(xformCh), ['firstTake', 'secondTake'])
 
 
 class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
@@ -995,13 +995,13 @@ class TestDroppingBuffer(unittest.TestCase):
         ch.t_put('keep2')
         ch.t_put('drop')
         ch.close()
-        self.assertEqual(list(ch), ['keep1', 'keep2'])
+        self.assertEqual(c.t_list(ch), ['keep1', 'keep2'])
 
     def test_buffer_does_not_overfill_with_xform(self):
         ch = chan(c.DroppingBuffer(2), xf.cat)
         ch.t_put([1, 2, 3, 4])
         ch.close()
-        self.assertEqual(list(ch), [1, 2])
+        self.assertEqual(c.t_list(ch), [1, 2])
 
 
 class TestSlidingBuffer(unittest.TestCase):
@@ -1017,13 +1017,13 @@ class TestSlidingBuffer(unittest.TestCase):
         ch.t_put('keep1')
         ch.t_put('keep2')
         ch.close()
-        self.assertEqual(list(ch), ['keep1', 'keep2'])
+        self.assertEqual(c.t_list(ch), ['keep1', 'keep2'])
 
     def test_buffer_does_not_overfill_with_xform(self):
         ch = chan(c.SlidingBuffer(2), xf.cat)
         ch.t_put([1, 2, 3, 4])
         ch.close()
-        self.assertEqual(list(ch), [3, 4])
+        self.assertEqual(c.t_list(ch), [3, 4])
 
 
 class TestMultAsyncio(unittest.TestCase):

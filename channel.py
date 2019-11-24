@@ -415,13 +415,6 @@ class Chan:
             taker.release()
         self._takes.clear()
 
-    def __iter__(self):
-        while True:
-            value = self.t_get()
-            if value is None:
-                break
-            yield value
-
     async def __aiter__(self):
         while True:
             value = await self.a_get()
@@ -462,10 +455,10 @@ def _alts(flag, deliver_fn, ports, priority):
 
     # Parse ports into ops
     for p in ports:
-        if type(p) in [list, tuple]:
+        try:
             ch, val = p
             op = {'type': 'put', 'value': val}
-        else:
+        except TypeError:
             ch = p
             op = {'type': 'get'}
         if ops.get(ch, op)['type'] != op['type']:
@@ -521,6 +514,30 @@ def async_get(port, f, on_caller=True):
         threading.Thread(target=f, args=[ret[0]]).start()
 
 
+def to_iter(ch):
+    while True:
+        val = ch.t_get()
+        if val is None:
+            break
+        yield val
+
+
+def t_list(ch):
+    return list(to_iter(ch))
+
+
+def t_tuple(ch):
+    return tuple(to_iter(ch))
+
+
+async def a_list(ch):
+    return [x async for x in ch]
+
+
+async def a_tuple(ch):
+    return tuple(await a_list(ch))
+
+
 def reduce(go, f, init, ch):
     result_ch = chan(1)
 
@@ -544,10 +561,6 @@ def thread_call(f):
 
     threading.Thread(target=wrapper).start()
     return ch
-
-
-async def a_list(ch):
-    return [x async for x in ch]
 
 
 class Go:
