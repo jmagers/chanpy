@@ -8,6 +8,7 @@ import transducers as xf
 import channel as c
 from channel import chan
 from toolz import identity
+from genericfuncs import Reduced
 
 
 class TestAsync(unittest.TestCase):
@@ -103,25 +104,6 @@ class TestAsync(unittest.TestCase):
                              (None, timeout_ch))
             elapsed_secs = time.time() - start_time
             self.assertIs(0.05 < elapsed_secs < 0.15, True)
-
-        asyncio.run(main())
-
-    def test_reduce_empty_ch(self):
-        async def main():
-            ch = chan()
-            ch.close()
-            go = c.Go()
-            result_ch = c.reduce(go, lambda: None, 'init', ch)
-            self.assertEqual(await result_ch.a_get(), 'init')
-
-        asyncio.run(main())
-
-    def test_reduce_non_empty_ch(self):
-        async def main():
-            go = c.Go()
-            in_ch = c.to_chan(go, range(4))
-            result_ch = c.reduce(go, lambda x, y: x + y, 100, in_ch)
-            self.assertEqual(await result_ch.a_get(), 106)
 
         asyncio.run(main())
 
@@ -1778,6 +1760,76 @@ class TestPipe(unittest.TestCase):
             self.assertIsNone(await dest.a_get())
             await asyncio.sleep(0.1)
             self.assertIsNone(src.poll())
+
+        asyncio.run(main())
+
+
+class TestReduce(unittest.TestCase):
+    def test_empty_ch(self):
+        async def main():
+            ch = chan()
+            ch.close()
+            go = c.Go()
+            result_ch = c.reduce(go, lambda: None, 'init', ch)
+            self.assertEqual(await result_ch.a_get(), 'init')
+
+        asyncio.run(main())
+
+    def test_non_empty_ch(self):
+        async def main():
+            go = c.Go()
+            in_ch = c.to_chan(go, range(4))
+            result_ch = c.reduce(go, lambda x, y: x + y, 100, in_ch)
+            self.assertEqual(await result_ch.a_get(), 106)
+
+        asyncio.run(main())
+
+    def test_reduced(self):
+        async def main():
+            go = c.Go()
+            in_ch = c.to_chan(go, range(4))
+
+            def rf(result, val):
+                if val == 2:
+                    return Reduced(result + 2)
+                return result + val
+
+            result_ch = c.reduce(go, rf, 100, in_ch)
+            self.assertEqual(await result_ch.a_get(), 103)
+
+        asyncio.run(main())
+
+
+class TestTransduce(unittest.TestCase):
+    def test_xform_is_flushed_on_completion(self):
+        async def main():
+            go = c.Go()
+            ch = c.to_chan(go, [1, 2, 3])
+
+            def rf(result, val=None):
+                if val is None:
+                    return result
+                result.append(val)
+                return result
+
+            result_ch = c.transduce(go, xf.partitionAll(2), rf, [], ch)
+            self.assertEqual(await result_ch.a_get(), [(1, 2), (3,)])
+
+        asyncio.run(main())
+
+    def test_xform_early_termination(self):
+        async def main():
+            go = c.Go()
+            ch = c.to_chan(go, [1, 2, 3])
+
+            def rf(result, val=None):
+                if val is None:
+                    return result
+                result.append(val)
+                return result
+
+            result_ch = c.transduce(go, xf.take(2), rf, [], ch)
+            self.assertEqual(await result_ch.a_get(), [1, 2])
 
         asyncio.run(main())
 

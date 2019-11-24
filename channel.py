@@ -2,7 +2,7 @@ import asyncio
 import random
 import threading
 from collections import deque
-from genericfuncs import multiArity, isReduced
+from genericfuncs import multiArity, isReduced, unreduced
 from toolz import identity
 
 
@@ -543,8 +543,22 @@ def reduce(go, f, init, ch):
         result = init
         async for val in ch:
             result = f(result, val)
-        await result_ch.a_put(result)
+            if isReduced(result):
+                break
+        await result_ch.a_put(unreduced(result))
         result_ch.close()
+
+    go(proc())
+    return result_ch
+
+
+def transduce(go, xform, f, init, ch):
+    result_ch = chan(1)
+
+    async def proc():
+        xrf = xform(f)
+        ret = await reduce(go, xrf, init, ch).a_get()
+        await result_ch.a_put(xrf(ret))
 
     go(proc())
     return result_ch
