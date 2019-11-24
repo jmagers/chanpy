@@ -1003,6 +1003,9 @@ class TestDroppingBuffer(unittest.TestCase):
         ch.close()
         self.assertEqual(c.t_list(ch), [1, 2])
 
+    def test_is_unblocking_buffer(self):
+        self.assertIs(c.is_unblocking_buffer(c.DroppingBuffer(1)), True)
+
 
 class TestSlidingBuffer(unittest.TestCase):
     def test_put_does_not_block(self):
@@ -1024,6 +1027,14 @@ class TestSlidingBuffer(unittest.TestCase):
         ch.t_put([1, 2, 3, 4])
         ch.close()
         self.assertEqual(c.t_list(ch), [3, 4])
+
+    def test_is_unblocking_buffer(self):
+        self.assertIs(c.is_unblocking_buffer(c.SlidingBuffer(1)), True)
+
+
+class TestPromiseBuffer(unittest.TestCase):
+    def test_is_unblocking_buffer(self):
+        self.assertIs(c.is_unblocking_buffer(c.SlidingBuffer(1)), True)
 
 
 class TestMultAsyncio(unittest.TestCase):

@@ -30,26 +30,25 @@ class FixedBuffer:
         return len(self._deque)
 
 
-class DroppingBuffer(FixedBuffer):
-    def put(self, item):
-        if len(self._deque) < self._maxsize:
-            self._deque.append(item)
-
+class UnblockingBufferMixin:
     def is_full(self):
         return False
 
 
-class SlidingBuffer(FixedBuffer):
+class DroppingBuffer(UnblockingBufferMixin, FixedBuffer):
+    def put(self, item):
+        if len(self._deque) < self._maxsize:
+            self._deque.append(item)
+
+
+class SlidingBuffer(UnblockingBufferMixin, FixedBuffer):
     def put(self, item):
         self._deque.append(item)
         if len(self._deque) > self._maxsize:
             self._deque.popleft()
 
-    def is_full(self):
-        return False
 
-
-class PromiseBuffer:
+class PromiseBuffer(UnblockingBufferMixin):
     def __init__(self):
         self._value = None
 
@@ -60,11 +59,12 @@ class PromiseBuffer:
         if self._value is None:
             self._value = item
 
-    def is_full(self):
-        return False
-
     def __len__(self):
         return 0 if self._value is None else 1
+
+
+def is_unblocking_buffer(buf):
+    return isinstance(buf, UnblockingBufferMixin)
 
 
 class Promise:
