@@ -442,7 +442,7 @@ def promise_chan(xform=identity):
     return chan(PromiseBuffer(), xform)
 
 
-def _alts(flag, deliver_fn, ports, priority):
+def _alts(flag, deliver_fn, ports, priority, default):
     ports = list(ports)
     if len(ports) == 0:
         raise ValueError('alts must have at least one channel operation')
@@ -475,19 +475,29 @@ def _alts(flag, deliver_fn, ports, priority):
         if ret is not None:
             return ret[0], ch
 
+    if default is not _UNDEFINED:
+        try:
+            flag['lock'].acquire()
+            if flag['is_active']:
+                flag['is_active'] = False
+                return default, 'default'
+        finally:
+            flag['lock'].release()
 
-def a_alts(ports, *, priority=False):
+
+def a_alts(ports, *, priority=False, default=_UNDEFINED):
     flag = create_flag()
     future = FlagFuture(flag)
-    ret = _alts(flag, _create_future_deliver_fn(future), ports, priority)
+    ret = _alts(flag, _create_future_deliver_fn(future), ports,
+                priority, default)
     if ret is not None:
         asyncio.Future.set_result(future, ret)
     return future
 
 
-def t_alts(ports, *, priority=False):
+def t_alts(ports, *, priority=False, default=_UNDEFINED):
     prom = Promise()
-    ret = _alts(create_flag(), prom.deliver, ports, priority)
+    ret = _alts(create_flag(), prom.deliver, ports, priority, default)
     return prom.deref() if ret is None else ret
 
 

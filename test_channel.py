@@ -105,6 +105,23 @@ class TestAsync(unittest.TestCase):
 
         asyncio.run(main())
 
+    def test_a_alts_default_when_available(self):
+        async def main():
+            ch = chan(1)
+            await ch.a_put('success')
+            self.assertEqual(await c.a_alts([ch], default='ignore me'),
+                             ('success', ch))
+
+        asyncio.run(main())
+
+    def test_a_alts_default_when_unavailable(self):
+        async def main():
+            ch = chan()
+            self.assertEqual(await c.a_alts([ch], default='success'),
+                             ('success', 'default'))
+
+        asyncio.run(main())
+
     def test_successful_cancel_get(self):
         async def main():
             ch = chan()
@@ -960,6 +977,18 @@ class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
     def chan(n=1, xform=identity):
         return c.Chan(c.FixedBuffer(n), xform)
+
+
+class TestAltsThreads(unittest.TestCase):
+    def test_t_alts_default_when_available(self):
+        ch = chan(1)
+        ch.t_put('success')
+        self.assertEqual(c.t_alts([ch], default='ignore me'), ('success', ch))
+
+    def test_t_alts_default_when_unavailable(self):
+        ch = chan()
+        self.assertEqual(c.t_alts([ch], default='success'),
+                         ('success', 'default'))
 
 
 class TestDroppingBuffer(unittest.TestCase):
