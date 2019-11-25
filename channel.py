@@ -165,7 +165,7 @@ def _create_future_deliver_fn(future):
 
     def deliver(result):
         future._FlagFuture__result = result
-        future.get_loop().call_soon_threadsafe(lambda: set_result(result))
+        future.get_loop().call_soon_threadsafe(set_result, result)
 
     return deliver
 
@@ -476,7 +476,7 @@ def _alts(flag, deliver_fn, ports, priority):
             return ret[0], ch
 
 
-def a_alts(ports, priority=False):
+def a_alts(ports, *, priority=False):
     flag = create_flag()
     future = FlagFuture(flag)
     ret = _alts(flag, _create_future_deliver_fn(future), ports, priority)
@@ -485,13 +485,13 @@ def a_alts(ports, priority=False):
     return future
 
 
-def t_alts(ports, priority=False):
+def t_alts(ports, *, priority=False):
     prom = Promise()
     ret = _alts(create_flag(), prom.deliver, ports, priority)
     return prom.deref() if ret is None else ret
 
 
-def async_put(port, val, f=lambda _: None, on_caller=True):
+def async_put(port, val, f=lambda _: None, *, on_caller=True):
     ret = port._put(FnHandler(f), val)
     if ret is None:
         return True
@@ -502,7 +502,7 @@ def async_put(port, val, f=lambda _: None, on_caller=True):
     return ret[0]
 
 
-def async_get(port, f, on_caller=True):
+def async_get(port, f, *, on_caller=True):
     ret = port._get(FnHandler(f))
     if ret is None:
         return None
@@ -536,141 +536,143 @@ async def a_tuple(ch):
     return tuple(await a_list(ch))
 
 
-def reduce(go, f, init, ch):
-    result_ch = chan(1)
-
-    async def proc():
-        result = init
-        async for val in ch:
-            result = f(result, val)
-            if isReduced(result):
-                break
-        await result_ch.a_put(unreduced(result))
-        result_ch.close()
-
-    go(proc())
-    return result_ch
+def ensure_loop(loop):
+    if loop is None:
+        return asyncio.get_running_loop()
+    return loop
 
 
-def transduce(go, xform, f, init, ch):
-    result_ch = chan(1)
+def in_loop(loop):
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
 
-    async def proc():
-        xrf = xform(f)
-        ret = await reduce(go, xrf, init, ch).a_get()
-        await result_ch.a_put(xrf(ret))
+    return current_loop is loop
 
-    go(proc())
-    return result_ch
+
+def go(coro, loop=None):
+    loop = ensure_loop(loop)
+    ch = chan(1)
+
+    def create_tasks():
+        # coro and put_result_to_ch coroutines need to be added separately or
+        # else a 'coroutine never awaited' RuntimeWarning could get raised when
+        # call_soon_threadsafe is used
+
+        coro_task = asyncio.create_task(coro)
+
+        async def put_result_to_ch():
+            ret = await coro_task
+            if ret is not None:
+                await ch.a_put(ret)
+            ch.close()
+
+        loop.create_task(put_result_to_ch())
+
+    if in_loop(loop):
+        create_tasks()
+    else:
+        loop.call_soon_threadsafe(create_tasks)
+
+    return ch
+
+
+def call_soon(cb, loop, *, eager=False):
+    """Schedules cb to run in event loop.
+    Returns a ch that contains the return value."""
+    loop = ensure_loop(loop)
+    ch = chan(1)
+
+    def wrapper():
+        ret = cb()
+        if ret is not None:
+            ch.t_put(ret)
+        ch.close()
+
+    if in_loop(loop):
+        if eager:
+            wrapper()
+        else:
+            loop.call_soon(wrapper)
+    else:
+        loop.call_soon_threadsafe(wrapper)
+
+    return ch
+
+
+def run_callback(cb, loop):
+    call_soon(cb, loop, eager=True).t_get()
 
 
 def thread_call(f):
     ch = chan(1)
 
     def wrapper():
-        ch.t_put(f())
+        ret = f()
+        if ret is not None:
+            ch.t_put(ret)
         ch.close()
 
     threading.Thread(target=wrapper).start()
     return ch
 
 
-class Go:
-    def __init__(self):
-        self._loop = asyncio.get_running_loop()
-
-    @property
-    def loop(self):
-        return self._loop
-
-    def in_loop(self):
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return False
-        return loop is self._loop
-
-    def __call__(self, coro):
-        if self.in_loop():
-            asyncio.create_task(coro)
-        else:
-            asyncio.run_coroutine_threadsafe(coro, self._loop)
-
-    def get(self, coro):
-        ch = chan(1)
-
-        async def wrapper():
-            await ch.a_put(await coro)
-            ch.close()
-
-        self(wrapper())
-        return ch
-
-    def schedule_callback(self, cb, eager=False):
-        """Schedules cb to run in event loop.
-        Returns a ch that closes when finished."""
-        ch = chan()
-
-        def wrapper():
-            cb()
-            ch.close()
-
-        if self.in_loop():
-            if eager:
-                wrapper()
-            else:
-                self._loop.call_soon(wrapper)
-        else:
-            self._loop.call_soon_threadsafe(wrapper)
-
-        return ch
-
-    def run_callback(self, cb):
-        self.schedule_callback(cb, eager=True).t_get()
-
-
-def timeout(go, msecs):
+def timeout(msecs, *, loop=None):
     ch = chan()
-    go.loop.call_later(msecs / 1000, ch.close)
+    ensure_loop(loop).call_later(msecs / 1000, ch.close)
     return ch
 
 
-def onto_chan(go, ch, coll, close=True):
-    close_ch = chan()
+def reduce(f, init, ch, *, loop=None):
+    async def proc():
+        result = init
+        async for val in ch:
+            result = f(result, val)
+            if isReduced(result):
+                break
+        return unreduced(result)
 
+    return go(proc(), loop)
+
+
+def transduce(xform, f, init, ch, *, loop=None):
+    async def proc():
+        xrf = xform(f)
+        ret = await reduce(xrf, init, ch, loop=loop).a_get()
+        return xrf(ret)
+
+    return go(proc())
+
+
+def onto_chan(ch, coll, *, close=True, loop=None):
     async def proc():
         for x in coll:
             await ch.a_put(x)
-        close_ch.close()
         if close:
             ch.close()
 
-    go(proc())
-    return close_ch
+    return go(proc(), loop=loop)
 
 
-def to_chan(go, coll):
+def to_chan(coll, *, loop=None):
     ch = chan()
-    onto_chan(go, ch, coll)
+    onto_chan(ch, coll, loop=loop)
     return ch
 
 
-def pipe(go, from_ch, to_ch, close=True):
-    complete_ch = chan()
-
+def pipe(from_ch, to_ch, *, close=True, loop=None):
     async def proc():
         async for val in from_ch:
             if not await to_ch.a_put(val):
                 break
-        complete_ch.close()
         if close:
             to_ch.close()
 
-    go(proc())
-    return complete_ch
+    return go(proc(), loop=loop)
 
 
-def merge(go, chs, buf=None):
+def merge(chs, buf=None, *, loop=None):
     to_ch = chan(buf)
 
     async def proc():
@@ -683,34 +685,34 @@ def merge(go, chs, buf=None):
                 await to_ch.a_put(val)
         to_ch.close()
 
-    go(proc())
+    go(proc(), loop)
     return to_ch
 
 
 class Mult:
-    def __init__(self, go, ch):
-        self._go = go
+    def __init__(self, ch, *, loop=None):
+        self._loop = ensure_loop(loop)
         self._src_ch = ch
         self._consumers = {}
         self._is_closed = False
-        go(self._proc())
+        go(self._proc(), self._loop)
 
     @property
     def muxch(self):
         return self._src_ch
 
-    def tap(self, ch, close=True):
+    def tap(self, ch, *, close=True):
         def _tap():
             if self._is_closed and close:
                 ch.close()
             self._consumers[ch] = close
-        self._go.run_callback(_tap)
+        run_callback(_tap, self._loop)
 
     def untap(self, ch):
-        self._go.run_callback(lambda: self._consumers.pop(ch, None))
+        run_callback(lambda: self._consumers.pop(ch, None), self._loop)
 
     def untap_all(self):
-        self._go.run_callback(self._consumers.clear)
+        run_callback(self._consumers.clear, self._loop)
 
     async def _proc(self):
         async for item in self._src_ch:
@@ -725,25 +727,25 @@ class Mult:
                 consumer.close()
 
 
-def mult(go, ch):
-    return Mult(go, ch)
+def mult(ch, *, loop=None):
+    return Mult(ch, loop=loop)
 
 
 class Pub:
-    def __init__(self, go, ch, topic_fn, buf_fn=lambda _: None):
-        self._go = go
+    def __init__(self, ch, topic_fn, buf_fn=lambda _: None, *, loop=None):
+        self._loop = ensure_loop(loop)
         self._src_ch = ch
         self._topic_fn = topic_fn
         self._buf_fn = buf_fn
         self._mults = {}
-        go(self._proc())
+        go(self._proc(), self._loop)
 
-    def sub(self, topic, ch, close=True):
+    def sub(self, topic, ch, *, close=True):
         def _sub():
             if topic not in self._mults:
-                self._mults[topic] = mult(self._go, chan(self._buf_fn(topic)))
-            self._mults[topic].tap(ch, close)
-        self._go.run_callback(_sub)
+                self._mults[topic] = mult(chan(self._buf_fn(topic)))
+            self._mults[topic].tap(ch, close=close)
+        run_callback(_sub, self._loop)
 
     def unsub(self, topic, ch):
         def _unsub():
@@ -753,7 +755,7 @@ class Pub:
                 if len(m._consumers) == 0:
                     m.muxch.close()
                     self._mults.pop(topic)
-        self._go.run_callback(_unsub)
+        run_callback(_unsub, self._loop)
 
     def unsub_all(self, topic=_UNDEFINED):
         def _unsub_all():
@@ -764,7 +766,7 @@ class Pub:
                     m.untap_all()
                     m.muxch.close()
                     self._mults.pop(t)
-        self._go.run_callback(_unsub_all)
+        run_callback(_unsub_all, self._loop)
 
     async def _proc(self):
         async for item in self._src_ch:
@@ -777,18 +779,18 @@ class Pub:
         self._mults.clear()
 
 
-def pub(go, ch, topic_fn, buf_fn=lambda _: None):
-    return Pub(go, ch, topic_fn, buf_fn)
+def pub(ch, topic_fn, buf_fn=lambda _: None, *, loop=None):
+    return Pub(ch, topic_fn, buf_fn, loop=loop)
 
 
 class Mix:
-    def __init__(self, go, ch):
-        self._go = go
+    def __init__(self, ch, *, loop=None):
+        self._loop = ensure_loop(loop)
         self._to_ch = ch
         self._state_ch = chan(SlidingBuffer(1))
         self._state_map = {}
         self._solo_mode = 'mute'
-        go(self._proc())
+        go(self._proc(), self._loop)
 
     @property
     def muxch(self):
@@ -814,7 +816,7 @@ class Mix:
                     self._state_map[ch] = {**original_state, **new_state}
                 self._sync_state()
 
-            self._go.run_callback(_toggle)
+            run_callback(_toggle, self._loop)
 
     def admix(self, ch):
         self.toggle({ch: {}})
@@ -823,13 +825,13 @@ class Mix:
         def _unmix():
             self._state_map.pop(ch, None)
             self._sync_state()
-        self._go.run_callback(_unmix)
+        run_callback(_unmix, self._loop)
 
     def unmix_all(self):
         def _unmix_all():
             self._state_map.clear()
             self._sync_state()
-        self._go.run_callback(_unmix_all)
+        run_callback(_unmix_all, self._loop)
 
     def solo_mode(self, mode):
         if mode not in ['pause', 'mute']:
@@ -839,7 +841,7 @@ class Mix:
             self._solo_mode = mode
             self._sync_state()
 
-        self._go.run_callback(_solo_mode)
+        run_callback(_solo_mode, self._loop)
 
     def _sync_state(self):
         soloed_chs, muted_chs, live_chs = set(), set(), set()
@@ -881,11 +883,11 @@ class Mix:
                 break
 
 
-def mix(go, ch):
-    return Mix(go, ch)
+def mix(ch, *, loop=None):
+    return Mix(ch, loop=loop)
 
 
-def split(go, pred, ch, t_buf=None, f_buf=None):
+def split(pred, ch, t_buf=None, f_buf=None, *, loop=None):
     true_ch, false_ch = chan(t_buf), chan(f_buf)
 
     async def proc():
@@ -897,5 +899,5 @@ def split(go, pred, ch, t_buf=None, f_buf=None):
         true_ch.close()
         false_ch.close()
 
-    go(proc())
+    go(proc(), loop)
     return true_ch, false_ch

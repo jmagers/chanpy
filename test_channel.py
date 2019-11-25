@@ -46,24 +46,23 @@ class TestAsync(unittest.TestCase):
 
         async def main():
             ch = chan()
-            go = c.Go()
-            get_ch = go.get(getter(ch))
+            get_ch = c.go(getter(ch))
             self.assertIs(await ch.a_put('success'), True)
             self.assertEqual(await get_ch.a_get(), 'success')
 
         asyncio.run(main())
 
     def test_go_from_different_thread(self):
-        def getter_thread(go, ch):
+        def getter_thread(loop, ch):
             async def getter():
                 return await ch.a_get()
 
-            return go.get(getter()).t_get()
+            return c.go(getter(), loop).t_get()
 
         async def main():
-            go = c.Go()
+            loop = asyncio.get_running_loop()
             ch = chan()
-            thread_result_ch = c.thread_call(lambda: getter_thread(go, ch))
+            thread_result_ch = c.thread_call(lambda: getter_thread(loop, ch))
             self.assertIs(await ch.a_put('success'), True)
             self.assertEqual(await thread_result_ch.a_get(), 'success')
 
@@ -76,7 +75,7 @@ class TestAsync(unittest.TestCase):
             await get_ch.a_put('success')
 
         async def main():
-            c.Go()(putter())
+            c.go(putter())
             await asyncio.sleep(0.1)
             return await c.a_alts([[put_ch, 'noSend'], get_ch], priority=True)
 
@@ -90,16 +89,15 @@ class TestAsync(unittest.TestCase):
             await put_ch.a_get()
 
         async def main():
-            c.Go()(putter())
+            c.go(putter())
             return await c.a_alts([[put_ch, 'success'], get_ch], priority=True)
 
         self.assertEqual(asyncio.run(main()), (True, put_ch))
 
     def test_a_alts_timeout(self):
         async def main():
-            go = c.Go()
             start_time = time.time()
-            timeout_ch = c.timeout(go, 100)
+            timeout_ch = c.timeout(100)
             self.assertEqual(await c.a_alts([chan(), timeout_ch]),
                              (None, timeout_ch))
             elapsed_secs = time.time() - start_time
@@ -258,7 +256,7 @@ class AbstractTestXform:
     def test_xform_map(self):
         async def main():
             ch = self.chan(1, xf.map(lambda x: x + 1))
-            c.onto_chan(c.Go(), ch, [0, 1, 2])
+            c.onto_chan(ch, [0, 1, 2])
             self.assertEqual(await c.a_list(ch), [1, 2, 3])
 
         asyncio.run(main())
@@ -266,7 +264,7 @@ class AbstractTestXform:
     def test_xform_filter(self):
         async def main():
             ch = self.chan(1, xf.filter(lambda x: x % 2 == 0))
-            c.onto_chan(c.Go(), ch, [0, 1, 2])
+            c.onto_chan(ch, [0, 1, 2])
             self.assertEqual(await c.a_list(ch), [0, 2])
 
         asyncio.run(main())
@@ -274,7 +272,7 @@ class AbstractTestXform:
     def test_xform_early_termination(self):
         async def main():
             ch = self.chan(1, xf.take(2))
-            c.onto_chan(c.Go(), ch, [1, 2, 3, 4])
+            c.onto_chan(ch, [1, 2, 3, 4])
             self.assertEqual(await c.a_list(ch), [1, 2])
 
         asyncio.run(main())
@@ -1023,8 +1021,7 @@ class TestMultAsyncio(unittest.TestCase):
     def test_tap(self):
         async def main():
             src, dest = chan(), chan()
-            go = c.Go()
-            m = c.mult(go, src)
+            m = c.mult(src)
             m.tap(dest)
             await src.a_put('success')
             self.assertEqual(await dest.a_get(), 'success')
@@ -1035,8 +1032,7 @@ class TestMultAsyncio(unittest.TestCase):
     def test_untap(self):
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            go = c.Go()
-            m = c.mult(go, src)
+            m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
             await src.a_put('item1')
@@ -1054,8 +1050,7 @@ class TestMultAsyncio(unittest.TestCase):
     def test_untap_all(self):
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            go = c.Go()
-            m = c.mult(go, src)
+            m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
             await src.a_put('item')
@@ -1069,11 +1064,10 @@ class TestMultAsyncio(unittest.TestCase):
 
         asyncio.run(main())
 
-    def test_untap_nonexistant_tap(self):
+    def test_untap_nonexistent_tap(self):
         async def main():
             src = chan()
-            go = c.Go()
-            m = c.mult(go, src)
+            m = c.mult(src)
             self.assertIsNone(m.untap(chan()))
             src.close()
 
@@ -1082,8 +1076,7 @@ class TestMultAsyncio(unittest.TestCase):
     def test_mult_blocks_until_all_taps_accept(self):
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            go = c.Go()
-            m = c.mult(go, src)
+            m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
             await src.a_put('item')
@@ -1098,8 +1091,7 @@ class TestMultAsyncio(unittest.TestCase):
     def test_only_correct_taps_close(self):
         async def main():
             src, close_dest, no_close_dest = chan(), chan(1), chan(1)
-            go = c.Go()
-            m = c.mult(go, src)
+            m = c.mult(src)
             m.tap(close_dest)
             m.tap(no_close_dest, close=False)
             src.close()
@@ -1112,8 +1104,7 @@ class TestMultAsyncio(unittest.TestCase):
     def test_tap_closes_when_added_after_mult_closes(self):
         async def main():
             src_ch, tap_ch = chan(), chan()
-            go = c.Go()
-            m = c.mult(go, src_ch)
+            m = c.mult(src_ch)
             src_ch.close()
             await asyncio.sleep(0.1)
             m.tap(tap_ch)
@@ -1124,23 +1115,23 @@ class TestMultAsyncio(unittest.TestCase):
 
 class TestMultThread(unittest.TestCase):
     def test_tap(self):
-        def thread(go, src, dest):
-            m = c.mult(go, src)
+        def thread(loop, src, dest):
+            m = c.mult(src, loop=loop)
             m.tap(dest)
             src.t_put('success')
 
         async def main():
             src, dest = chan(), chan()
-            go = c.Go()
-            threading.Thread(target=thread, args=(go, src, dest)).start()
+            loop = asyncio.get_running_loop()
+            threading.Thread(target=thread, args=(loop, src, dest)).start()
             self.assertEqual(await dest.a_get(), 'success')
             src.close()
 
         asyncio.run(main())
 
     def test_untap(self):
-        def thread(go, src, dest1, dest2):
-            m = c.mult(go, src)
+        def thread(loop, src, dest1, dest2):
+            m = c.mult(src, loop=loop)
             m.tap(dest1)
             m.tap(dest2)
             src.t_put('item1')
@@ -1152,9 +1143,9 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            go = c.Go()
+            loop = asyncio.get_running_loop()
             threading.Thread(target=thread,
-                             args=(go, src, dest1, dest2)).start()
+                             args=(loop, src, dest1, dest2)).start()
             await asyncio.sleep(0.1)
             self.assertIsNone(dest2.poll())
             src.close()
@@ -1162,8 +1153,8 @@ class TestMultThread(unittest.TestCase):
         asyncio.run(main())
 
     def test_untap_all(self):
-        def thread(go, src, dest1, dest2):
-            m = c.mult(go, src)
+        def thread(loop, src, dest1, dest2):
+            m = c.mult(src, loop=loop)
             m.tap(dest1)
             m.tap(dest2)
             src.t_put('item')
@@ -1173,9 +1164,9 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            go = c.Go()
+            loop = asyncio.get_running_loop()
             threading.Thread(target=thread,
-                             args=(go, src, dest1, dest2)).start()
+                             args=(loop, src, dest1, dest2)).start()
             await asyncio.sleep(0.1)
             self.assertIs(await src.a_put('dropMe'), True)
             await asyncio.sleep(0.1)
@@ -1184,24 +1175,24 @@ class TestMultThread(unittest.TestCase):
 
         asyncio.run(main())
 
-    def test_untap_nonexistant_tap(self):
-        def thread(go, src, complete):
-            m = c.mult(go, src)
+    def test_untap_nonexistent_tap(self):
+        def thread(loop, src, complete):
+            m = c.mult(src, loop=loop)
             m.untap(chan())
             src.close()
             complete.close()
 
         async def main():
             src, complete = chan(), chan()
-            go = c.Go()
-            threading.Thread(target=thread, args=(go, src, complete)).start()
+            loop = asyncio.get_running_loop()
+            threading.Thread(target=thread, args=(loop, src, complete)).start()
             self.assertIsNone(await complete.a_get())
 
         asyncio.run(main())
 
     def test_mult_blocks_until_all_taps_accept(self):
-        def thread(go, src, dest1, dest2, complete):
-            m = c.mult(go, src)
+        def thread(loop, src, dest1, dest2, complete):
+            m = c.mult(src, loop=loop)
             m.tap(dest1)
             m.tap(dest2)
             src.t_put('item')
@@ -1214,42 +1205,43 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2, complete = chan(), chan(), chan(), chan()
-            go = c.Go()
+            loop = asyncio.get_running_loop()
             threading.Thread(target=thread,
-                             args=(go, src, dest1, dest2, complete)).start()
+                             args=(loop, src, dest1, dest2, complete)).start()
             self.assertIsNone(await complete.a_get())
 
         asyncio.run(main())
 
     def test_only_correct_taps_close(self):
-        def thread(go, src, close_dest, no_close_dest):
-            m = c.mult(go, src)
+        def thread(loop, src, close_dest, open_dest):
+            m = c.mult(src, loop=loop)
             m.tap(close_dest)
-            m.tap(no_close_dest, close=False)
+            m.tap(open_dest, close=False)
             src.close()
 
         async def main():
-            src, close_dest, no_close_dest = chan(), chan(1), chan(1)
-            go = c.Go()
+            src, close_dest, open_dest = chan(), chan(1), chan(1)
+            loop = asyncio.get_running_loop()
             threading.Thread(target=thread,
-                             args=(go, src, close_dest, no_close_dest)).start()
+                             args=(loop, src, close_dest, open_dest)).start()
             await asyncio.sleep(0.1)
             self.assertIs(await close_dest.a_put('closed'), False)
-            self.assertIs(await no_close_dest.a_put('not closed'), True)
+            self.assertIs(await open_dest.a_put('not closed'), True)
 
         asyncio.run(main())
 
     def test_tap_closes_when_added_after_mult_closes(self):
-        def thread(go, src_ch, tap_ch):
-            m = c.mult(go, src_ch)
+        def thread(loop, src_ch, tap_ch):
+            m = c.mult(src_ch, loop=loop)
             src_ch.close()
             time.sleep(0.1)
             m.tap(tap_ch)
 
         async def main():
             src_ch, tap_ch = chan(), chan()
-            go = c.Go()
-            threading.Thread(target=thread, args=(go, src_ch, tap_ch)).start()
+            loop = asyncio.get_running_loop()
+            threading.Thread(target=thread,
+                             args=(loop, src_ch, tap_ch)).start()
             self.assertIsNone(await tap_ch.a_get())
 
         asyncio.run(main())
@@ -1260,8 +1252,7 @@ class TestPubAsyncio(unittest.TestCase):
         async def main():
             from_ch = chan(1)
             a1_ch, a2_ch, b1_ch, b2_ch = chan(), chan(), chan(), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, lambda x: x[0])
+            p = c.pub(from_ch, lambda x: x[0])
             p.sub('a', a1_ch)
             p.sub('a', a2_ch)
             p.sub('b', b1_ch)
@@ -1287,8 +1278,7 @@ class TestPubAsyncio(unittest.TestCase):
         async def main():
             from_ch = chan(1)
             a1_ch, a2_ch, b_ch = chan(), chan(), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, lambda x: x[0])
+            p = c.pub(from_ch, lambda x: x[0])
             p.sub('a', a1_ch)
             p.sub('a', a2_ch)
             p.sub('b', b_ch)
@@ -1310,8 +1300,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_unsub_nonexistent_topic(self):
         async def main():
             from_ch, to_ch = chan(1), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, identity)
+            p = c.pub(from_ch, identity)
             p.sub('a', to_ch)
 
             p.unsub('b', to_ch)
@@ -1323,8 +1312,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_unsub_nonexistent_ch(self):
         async def main():
             from_ch, to_ch = chan(1), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, identity)
+            p = c.pub(from_ch, identity)
             p.sub('a', to_ch)
 
             p.unsub('b', chan())
@@ -1336,8 +1324,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_unsub_all(self):
         async def main():
             from_ch, a_ch, b_ch = chan(2), chan(), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, lambda x: x[0])
+            p = c.pub(from_ch, lambda x: x[0])
             p.sub('a', a_ch)
             p.sub('b', b_ch)
 
@@ -1359,8 +1346,7 @@ class TestPubAsyncio(unittest.TestCase):
         async def main():
             from_ch = chan(2)
             a1_ch, a2_ch, b_ch = chan(), chan(), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, lambda x: x[0])
+            p = c.pub(from_ch, lambda x: x[0])
             p.sub('a', a1_ch)
             p.sub('a', a2_ch)
             p.sub('b', b_ch)
@@ -1383,8 +1369,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_only_correct_subs_get_closed(self):
         async def main():
             from_ch, close_ch, open_ch = chan(1), chan(1), chan(1)
-            go = c.Go()
-            p = c.pub(go, from_ch, identity)
+            p = c.pub(from_ch, identity)
             p.sub('close', close_ch)
             p.sub('open', open_ch, close=False)
 
@@ -1399,8 +1384,7 @@ class TestPubAsyncio(unittest.TestCase):
         async def main():
             from_ch = chan()
             a_ch, b_ch = chan(), chan()
-            go = c.Go()
-            p = c.pub(go, from_ch, lambda x: x[0],
+            p = c.pub(from_ch, lambda x: x[0],
                       lambda x: None if x == 'a' else 2)
 
             p.sub('a', a_ch)
@@ -1434,8 +1418,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_toggle_exceptions(self):
         async def main():
             ch = chan()
-            go = c.Go()
-            m = c.mix(go, ch)
+            m = c.mix(ch)
             with self.assertRaises(ValueError):
                 m.toggle({'not a channel': {}})
             with self.assertRaises(ValueError):
@@ -1451,7 +1434,7 @@ class TestMixAsyncio(unittest.TestCase):
 
     def test_solo_mode_exception(self):
         async def main():
-            m = c.mix(c.Go(), chan())
+            m = c.mix(chan())
             with self.assertRaises(ValueError):
                 m.solo_mode('invalid mode')
 
@@ -1460,8 +1443,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_admix(self):
         async def main():
             from_ch1, from_ch2, to_ch = chan(), chan(), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.admix(from_ch1)
             await from_ch1.a_put('from_ch1')
             self.assertEqual(await to_ch.a_get(), 'from_ch1')
@@ -1476,8 +1458,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_unmix(self):
         async def main():
             from_ch1, from_ch2, to_ch = chan(1), chan(1), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.admix(from_ch1)
             await from_ch1.a_put('from_ch1')
             self.assertEqual(await to_ch.a_get(), 'from_ch1')
@@ -1495,8 +1476,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_unmix_all(self):
         async def main():
             from_ch1, from_ch2, to_ch = chan(1), chan(1), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.admix(from_ch1)
             m.admix(from_ch2)
             await from_ch1.a_put('from_ch1')
@@ -1516,8 +1496,7 @@ class TestMixAsyncio(unittest.TestCase):
         async def main():
             unmuted_ch, muted_ch = chan(), chan()
             to_ch = chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.toggle({unmuted_ch: {'mute': False},
                       muted_ch: {'mute': True}})
             await unmuted_ch.a_put('not muted')
@@ -1537,8 +1516,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_pause(self):
         async def main():
             unpaused_ch, paused_ch, to_ch = chan(1), chan(1), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.toggle({unpaused_ch: {'pause': False},
                       paused_ch: {'pause': True}})
             await unpaused_ch.a_put('not paused')
@@ -1560,8 +1538,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_pause_dominates_mute(self):
         async def main():
             from_ch, to_ch = chan(1), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.toggle({from_ch: {'pause': True, 'mute': True}})
             await from_ch.a_put('stay in from_ch')
             await asyncio.sleep(0.1)
@@ -1572,8 +1549,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_solo_domintates_pause_and_mute(self):
         async def main():
             from_ch, to_ch = chan(), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.toggle({from_ch: {'solo': True, 'pause': True, 'mute': True}})
             await from_ch.a_put('success')
             self.assertEqual(await to_ch.a_get(), 'success')
@@ -1584,8 +1560,7 @@ class TestMixAsyncio(unittest.TestCase):
         async def main():
             solo_ch1, solo_ch2, non_solo_ch = chan(), chan(), chan()
             to_ch = chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
 
             m.solo_mode('mute')
             m.toggle({solo_ch1: {'solo': True},
@@ -1615,8 +1590,7 @@ class TestMixAsyncio(unittest.TestCase):
         async def main():
             to_ch = chan(1)
             solo_ch1, solo_ch2, non_solo_ch = chan(1), chan(1), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
 
             m.solo_mode('pause')
             m.toggle({solo_ch1: {'solo': True},
@@ -1646,8 +1620,7 @@ class TestMixAsyncio(unittest.TestCase):
         async def main():
             to_ch, from_ch = chan(), chan(1)
             admix_ch, unmix_ch, pause_ch = chan(1), chan(1), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.toggle({from_ch: {}, unmix_ch: {}})
 
             # Start waiting put to to_ch
@@ -1678,8 +1651,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_to_ch_does_not_close_when_from_chs_do(self):
         async def main():
             from_ch, to_ch = chan(), chan(1)
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.admix(from_ch)
             from_ch.close()
             await asyncio.sleep(0.1)
@@ -1690,8 +1662,7 @@ class TestMixAsyncio(unittest.TestCase):
     def test_mix_consumes_only_one_after_to_ch_closes(self):
         async def main():
             from_ch, to_ch = chan(1), chan()
-            go = c.Go()
-            m = c.mix(go, to_ch)
+            m = c.mix(to_ch)
             m.admix(from_ch)
             await asyncio.sleep(0.1)
             to_ch.close()
@@ -1707,8 +1678,7 @@ class TestPipe(unittest.TestCase):
     def test_pipe_copy(self):
         async def main():
             src, dest = chan(), chan()
-            go = c.Go()
-            c.pipe(go, src, dest)
+            c.pipe(src, dest)
             c.async_put(src, 1)
             c.async_put(src, 2)
             src.close()
@@ -1719,8 +1689,7 @@ class TestPipe(unittest.TestCase):
     def test_pipe_close_dest(self):
         async def main():
             src, dest = chan(), chan()
-            go = c.Go()
-            c.pipe(go, src, dest)
+            c.pipe(src, dest)
             src.close()
             self.assertIsNone(await dest.a_get())
 
@@ -1729,8 +1698,7 @@ class TestPipe(unittest.TestCase):
     def test_complete_ch(self):
         async def main():
             src, dest = chan(), chan()
-            go = c.Go()
-            complete_ch = c.pipe(go, src, dest)
+            complete_ch = c.pipe(src, dest)
             src.close()
             self.assertIsNone(await complete_ch.a_get())
 
@@ -1739,8 +1707,7 @@ class TestPipe(unittest.TestCase):
     def test_pipe_no_close_dest(self):
         async def main():
             src, dest = chan(), chan(1)
-            go = c.Go()
-            complete_ch = c.pipe(go, src, dest, close=False)
+            complete_ch = c.pipe(src, dest, close=False)
             src.close()
             complete_ch.get()
             dest.a_put('success')
@@ -1749,10 +1716,8 @@ class TestPipe(unittest.TestCase):
     def test_stop_consuming_when_dest_closes(self):
         async def main():
             src, dest = chan(3), chan(1)
-            go = c.Go()
-            c.onto_chan(go, src, ['intoDest1', 'intoDest2', 'dropMe'],
-                        close=False)
-            c.pipe(go, src, dest)
+            c.onto_chan(src, ['intoDest1', 'intoDest2', 'dropMe'], close=False)
+            c.pipe(src, dest)
             await asyncio.sleep(0.1)
             dest.close()
             self.assertEqual(await dest.a_get(), 'intoDest1')
@@ -1769,32 +1734,29 @@ class TestReduce(unittest.TestCase):
         async def main():
             ch = chan()
             ch.close()
-            go = c.Go()
-            result_ch = c.reduce(go, lambda: None, 'init', ch)
+            result_ch = c.reduce(lambda: None, 'init', ch)
             self.assertEqual(await result_ch.a_get(), 'init')
 
         asyncio.run(main())
 
     def test_non_empty_ch(self):
         async def main():
-            go = c.Go()
-            in_ch = c.to_chan(go, range(4))
-            result_ch = c.reduce(go, lambda x, y: x + y, 100, in_ch)
+            in_ch = c.to_chan(range(4))
+            result_ch = c.reduce(lambda x, y: x + y, 100, in_ch)
             self.assertEqual(await result_ch.a_get(), 106)
 
         asyncio.run(main())
 
     def test_reduced(self):
         async def main():
-            go = c.Go()
-            in_ch = c.to_chan(go, range(4))
+            in_ch = c.to_chan(range(4))
 
             def rf(result, val):
                 if val == 2:
                     return Reduced(result + 2)
                 return result + val
 
-            result_ch = c.reduce(go, rf, 100, in_ch)
+            result_ch = c.reduce(rf, 100, in_ch)
             self.assertEqual(await result_ch.a_get(), 103)
 
         asyncio.run(main())
@@ -1803,8 +1765,7 @@ class TestReduce(unittest.TestCase):
 class TestTransduce(unittest.TestCase):
     def test_xform_is_flushed_on_completion(self):
         async def main():
-            go = c.Go()
-            ch = c.to_chan(go, [1, 2, 3])
+            ch = c.to_chan([1, 2, 3])
 
             def rf(result, val=None):
                 if val is None:
@@ -1812,15 +1773,14 @@ class TestTransduce(unittest.TestCase):
                 result.append(val)
                 return result
 
-            result_ch = c.transduce(go, xf.partitionAll(2), rf, [], ch)
+            result_ch = c.transduce(xf.partitionAll(2), rf, [], ch)
             self.assertEqual(await result_ch.a_get(), [(1, 2), (3,)])
 
         asyncio.run(main())
 
     def test_xform_early_termination(self):
         async def main():
-            go = c.Go()
-            ch = c.to_chan(go, [1, 2, 3])
+            ch = c.to_chan([1, 2, 3])
 
             def rf(result, val=None):
                 if val is None:
@@ -1828,7 +1788,7 @@ class TestTransduce(unittest.TestCase):
                 result.append(val)
                 return result
 
-            result_ch = c.transduce(go, xf.take(2), rf, [], ch)
+            result_ch = c.transduce(xf.take(2), rf, [], ch)
             self.assertEqual(await result_ch.a_get(), [1, 2])
 
         asyncio.run(main())
@@ -1837,9 +1797,8 @@ class TestTransduce(unittest.TestCase):
 class TestMerge(unittest.TestCase):
     def test_merge(self):
         async def main():
-            go = c.Go()
             src1, src2 = chan(), chan()
-            m = c.merge(go, [src1, src2], 2)
+            m = c.merge([src1, src2], 2)
             await src1.a_put('src1')
             await src2.a_put('src2')
             src1.close()
@@ -1852,10 +1811,9 @@ class TestMerge(unittest.TestCase):
 class TestSplit(unittest.TestCase):
     def test_chans_close_with_closed_source(self):
         async def main():
-            go = c.Go()
             src_ch = chan()
             src_ch.close()
-            t_ch, f_ch = c.split(go, lambda _: True, src_ch)
+            t_ch, f_ch = c.split(lambda _: True, src_ch)
             self.assertIsNone(await t_ch.a_get())
             self.assertIsNone(await f_ch.a_get())
 
@@ -1863,10 +1821,8 @@ class TestSplit(unittest.TestCase):
 
     def test_true_false_chans(self):
         async def main():
-            go = c.Go()
-            t_ch, f_ch = c.split(go,
-                                 lambda x: x % 2 == 0,
-                                 c.to_chan(go, [1, 2, 3, 4]))
+            t_ch, f_ch = c.split(lambda x: x % 2 == 0,
+                                 c.to_chan([1, 2, 3, 4]))
             self.assertEqual(await f_ch.a_get(), 1)
             self.assertEqual(await t_ch.a_get(), 2)
             self.assertEqual(await f_ch.a_get(), 3)
@@ -1878,10 +1834,8 @@ class TestSplit(unittest.TestCase):
 
     def test_bufs(self):
         async def main():
-            go = c.Go()
-            t_ch, f_ch = c.split(go,
-                                 lambda x: x % 2 == 0,
-                                 c.to_chan(go, [1, 2, 3, 4, 5]),
+            t_ch, f_ch = c.split(lambda x: x % 2 == 0,
+                                 c.to_chan([1, 2, 3, 4, 5]),
                                  2, 3)
             self.assertEqual(await c.a_list(t_ch), [2, 4])
             self.assertEqual(await c.a_list(f_ch), [1, 3, 5])
