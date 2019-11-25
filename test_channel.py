@@ -68,6 +68,49 @@ class TestAsync(unittest.TestCase):
 
         asyncio.run(main())
 
+    def test_go_coroutine_never_awaited(self):
+        """ Test that no 'coroutine was not awaited' warning is raised
+
+        The warning could be raised if the coroutine was added to the loop
+        indirectly.
+
+        Example:
+            # If 'go' used a wrapper couroutine around 'coro' then 'coro' may
+            # never be added to the loop. This is because there is no guarantee
+            # that the wrapper coroutine will ever run and thus call await on
+            # 'coro'.
+            #
+            # The following 'go' implementation would fail if wrapper never
+            # ends up running:
+
+            def go(coro, loop):
+                ch = chan(1)
+
+                async def wrapper():
+                    ret = await coro  # I may never run
+                    if ret is not None:
+                        await ch.a_put(ret)
+                    ch.close()
+
+                asyncio.run_coroutine_threadsafe(wrapper(), loop)
+        """
+
+        def thread(loop):
+            async def coro():
+                pass
+            c.go(coro(), loop)
+
+        async def main():
+            loop = asyncio.get_running_loop()
+            t = threading.Thread(target=thread, args=[loop])
+            t.start()
+            t.join()
+
+        # Assert does NOT warn
+        with self.assertRaises(AssertionError):
+            with self.assertWarns(RuntimeWarning):
+                asyncio.run(main())
+
     def test_a_alts_get_no_wait(self):
         get_ch, put_ch = chan(), chan()
 
