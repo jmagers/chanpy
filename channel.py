@@ -726,9 +726,10 @@ class Mult:
 
     async def _proc(self):
         async for item in self._src_ch:
-            pending_puts = [(ch, ch.a_put(item)) for ch in self._consumers]
-            for ch, pending_put in pending_puts:
-                if not await pending_put:
+            chs = tuple(self._consumers)
+            results = await asyncio.gather(*(ch.a_put(item) for ch in chs))
+            for ch, is_open in zip(chs, results):
+                if not is_open:
                     self._consumers.pop(ch, None)
 
         self._is_closed = True
