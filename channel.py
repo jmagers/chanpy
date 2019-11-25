@@ -208,20 +208,20 @@ class Chan:
         rf = multiArity(lambda: None, lambda _: None, step)
         self._buf_rf = ex_handler_xform(xform(rf))
 
-    def a_put(self, val, wait=True):
+    def a_put(self, val, *, wait=True):
         return self._a_op(lambda h: self._put(h, val), wait)
 
-    def a_get(self, wait=True):
+    def a_get(self, *, wait=True):
         return self._a_op(self._get, wait)
 
-    def t_put(self, val, wait=True):
+    def t_put(self, val, *, wait=True):
         prom = Promise()
         ret = self._put(FnHandler(prom.deliver, wait), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
-    def t_get(self, wait=True):
+    def t_get(self, *, wait=True):
         prom = Promise()
         ret = self._get(FnHandler(prom.deliver, wait))
         if ret is not None:
@@ -236,6 +236,7 @@ class Chan:
 
     def close(self):
         with self._lock:
+            self._cleanup()
             self._close()
 
     @staticmethod
@@ -399,7 +400,6 @@ class Chan:
             self._buf_rf(None)
 
     def _close(self):
-        self._cleanup()
         self._is_closed = True
 
         if self._buf is not None:

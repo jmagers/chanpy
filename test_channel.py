@@ -28,7 +28,7 @@ class TestAsync(unittest.TestCase):
 
         def getter(ch):
             nonlocal result
-            result = ch.t_get('success')
+            result = ch.t_get()
 
         async def main():
             ch = chan()
