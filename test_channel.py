@@ -4,11 +4,9 @@ import asyncio
 import threading
 import time
 import unittest
-import transducers as xf
+import xf
 import channel as c
 from channel import chan
-from toolz import identity
-from genericfuncs import Reduced
 
 
 class TestAsync(unittest.TestCase):
@@ -339,7 +337,7 @@ class AbstractTestXform:
 
     def test_xform_early_termination_works_after_close(self):
         async def main():
-            ch = self.chan(1, xf.takeWhile(lambda x: x != 2))
+            ch = self.chan(1, xf.take_while(lambda x: x != 2))
             for i in range(4):
                 c.async_put(ch, i)
             ch.close()
@@ -365,14 +363,14 @@ class AbstractTestXform:
             ch.t_put('failure')
 
     def test_close_flushes_xform_buffer(self):
-        ch = self.chan(3, xf.partitionAll(2))
+        ch = self.chan(3, xf.partition_all(2))
         for i in range(3):
             ch.t_put(i)
         ch.close()
         self.assertEqual(c.t_list(ch), [(0, 1), (2,)])
 
     def test_close_does_not_flush_xform_with_pending_puts(self):
-        ch = self.chan(1, xf.partitionAll(2))
+        ch = self.chan(1, xf.partition_all(2))
         for i in range(3):
             c.async_put(ch, i)
         ch.close()
@@ -557,7 +555,7 @@ class AbstractTestUnbufferedBlocking:
 
     def test_ex_handler_exception(self):
         with self.assertRaises(TypeError):
-            self.chan(ex_handler=identity)
+            self.chan(ex_handler=xf.identity)
 
 
 class TestUnbufferedBlockingChan(unittest.TestCase,
@@ -643,7 +641,7 @@ class TestPromiseChan(unittest.TestCase):
         self.assertEqual(ch.t_get(), 1)
 
     def test_xform_complete_flush(self):
-        ch = c.promise_chan(xf.partitionAll(3))
+        ch = c.promise_chan(xf.partition_all(3))
         self.assertIs(ch.t_put(1), True)
         self.assertIs(ch.t_put(2), True)
         self.assertIsNone(ch.poll())
@@ -1018,7 +1016,7 @@ class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
 
 class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
-    def chan(n=1, xform=identity):
+    def chan(n=1, xform=xf.identity):
         return c.Chan(c.FixedBuffer(n), xform)
 
 
@@ -1372,7 +1370,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_unsub_nonexistent_topic(self):
         async def main():
             from_ch, to_ch = chan(1), chan()
-            p = c.pub(from_ch, identity)
+            p = c.pub(from_ch, xf.identity)
             p.sub('a', to_ch)
 
             p.unsub('b', to_ch)
@@ -1384,7 +1382,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_unsub_nonexistent_ch(self):
         async def main():
             from_ch, to_ch = chan(1), chan()
-            p = c.pub(from_ch, identity)
+            p = c.pub(from_ch, xf.identity)
             p.sub('a', to_ch)
 
             p.unsub('b', chan())
@@ -1441,7 +1439,7 @@ class TestPubAsyncio(unittest.TestCase):
     def test_only_correct_subs_get_closed(self):
         async def main():
             from_ch, close_ch, open_ch = chan(1), chan(1), chan(1)
-            p = c.pub(from_ch, identity)
+            p = c.pub(from_ch, xf.identity)
             p.sub('close', close_ch)
             p.sub('open', open_ch, close=False)
 
@@ -1825,7 +1823,7 @@ class TestReduce(unittest.TestCase):
 
             def rf(result, val):
                 if val == 2:
-                    return Reduced(result + 2)
+                    return xf.reduced(result + 2)
                 return result + val
 
             result_ch = c.reduce(rf, 100, in_ch)
@@ -1845,7 +1843,7 @@ class TestTransduce(unittest.TestCase):
                 result.append(val)
                 return result
 
-            result_ch = c.transduce(xf.partitionAll(2), rf, [], ch)
+            result_ch = c.transduce(xf.partition_all(2), rf, [], ch)
             self.assertEqual(await result_ch.a_get(), [(1, 2), (3,)])
 
         asyncio.run(main())
@@ -1956,15 +1954,15 @@ class TestAsyncGet(unittest.TestCase):
     def test_return_none_if_buffer_not_empty(self):
         ch = chan(1)
         ch.t_put('val')
-        self.assertIsNone(c.async_get(ch, identity))
+        self.assertIsNone(c.async_get(ch, xf.identity))
 
     def test_return_none_if_buffer_empty(self):
-        self.assertIsNone(c.async_get(chan(), identity))
+        self.assertIsNone(c.async_get(chan(), xf.identity))
 
     def test_return_none_if_closed(self):
         ch = chan()
         ch.close()
-        self.assertIsNone(c.async_get(ch, identity))
+        self.assertIsNone(c.async_get(ch, xf.identity))
 
     def test_cb_called_if_buffer_empty(self):
         prom = c.Promise()

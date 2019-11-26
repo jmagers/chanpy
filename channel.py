@@ -1,9 +1,8 @@
 import asyncio
 import random
 import threading
+import xf
 from collections import deque
-from genericfuncs import multiArity, isReduced, unreduced
-from toolz import identity
 
 
 class _UNDEFINED:
@@ -182,7 +181,7 @@ def nop_ex_handler(e):
 
 
 class Chan:
-    def __init__(self, buf=None, xform=identity, ex_handler=nop_ex_handler):
+    def __init__(self, buf=None, xform=xf.identity, ex_handler=nop_ex_handler):
         self._buf = buf
         self._takes = deque()
         self._puts = deque()
@@ -205,7 +204,7 @@ class Chan:
                 raise TypeError('xform cannot produce None')
             self._buf.put(val)
 
-        rf = multiArity(lambda: None, lambda _: None, step)
+        rf = xf.multi_arity(lambda: None, lambda _: None, step)
         self._buf_rf = ex_handler_xform(xform(rf))
 
     def a_put(self, val, *, wait=True):
@@ -371,7 +370,7 @@ class Chan:
             handler.release()
 
     def _buf_put(self, val):
-        if isReduced(self._buf_rf(None, val)):
+        if xf.is_reduced(self._buf_rf(None, val)):
             # If reduced value is returned then no more input is allowed onto
             # buf. To ensure this, remove all pending puts and close ch.
             for putter, _ in self._puts:
@@ -427,9 +426,9 @@ def is_chan(ch):
     return isinstance(ch, Chan)
 
 
-def chan(buf=None, xform=identity, ex_handler=nop_ex_handler):
+def chan(buf=None, xform=xf.identity, ex_handler=nop_ex_handler):
     if buf is None:
-        if xform is not identity:
+        if xform is not xf.identity:
             raise TypeError('unbuffered channels cannot have an xform')
         if ex_handler is not nop_ex_handler:
             raise TypeError('unbuffered channels cannot have an ex_handler')
@@ -438,7 +437,7 @@ def chan(buf=None, xform=identity, ex_handler=nop_ex_handler):
     return Chan(new_buf, xform, ex_handler)
 
 
-def promise_chan(xform=identity):
+def promise_chan(xform=xf.identity):
     return chan(PromiseBuffer(), xform)
 
 
@@ -639,9 +638,9 @@ def reduce(f, init, ch, *, loop=None):
         result = init
         async for val in ch:
             result = f(result, val)
-            if isReduced(result):
+            if xf.is_reduced(result):
                 break
-        return unreduced(result)
+        return xf.unreduced(result)
 
     return go(proc(), loop)
 
