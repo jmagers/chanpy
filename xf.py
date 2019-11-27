@@ -5,7 +5,7 @@ from collections import deque
 def comp(*funcs):
     ordered_funcs = reversed(funcs)
     try:
-        first_func = next(reversed(funcs))
+        first_func = next(ordered_funcs)
     except StopIteration:
         return identity
     ordered_funcs = tuple(ordered_funcs)
@@ -122,11 +122,41 @@ def take(n):
     return xform
 
 
-def take_while(f):
+def take_while(pred):
     def xform(rf):
         return multi_arity(rf, rf, lambda result, val: (rf(result, val)
-                                                        if f(val)
+                                                        if pred(val)
                                                         else reduced(result)))
+    return xform
+
+
+def drop(n):
+    def xform(rf):
+        remaining = n
+
+        def step(result, val):
+            nonlocal remaining
+            remaining -= 1
+            return result if remaining > -1 else rf(result, val)
+
+        return multi_arity(rf, rf, step)
+    return xform
+
+
+def drop_while(pred):
+    def xform(rf):
+        has_taken = False
+
+        def step(result, val):
+            nonlocal has_taken
+
+            if not has_taken and pred(val):
+                return result
+
+            has_taken = True
+            return rf(result, val)
+
+        return multi_arity(rf, rf, step)
     return xform
 
 
