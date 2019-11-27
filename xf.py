@@ -205,5 +205,12 @@ def reductions(f, init):
                     if is_reduced(prev_state)
                     else new_result)
 
-        return multi_arity(rf, rf, step)
+        def complete(result):
+            if prev_state is _INITIAL:
+                tmp_result = unreduced(rf(result, init))
+            else:
+                tmp_result = result
+            return rf(tmp_result)
+
+        return multi_arity(rf, complete, step)
     return xform
