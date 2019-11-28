@@ -253,6 +253,29 @@ class TestRemove(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 5])), [(1, 3), (5,)])
 
 
+class TestKeep(unittest.TestCase):
+    def test_keep_some(self):
+        xform = xf.keep(lambda x: x if x % 2 == 0 else None)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [2, 4])
+
+    def test_remove_empty(self):
+        xform = xf.keep(lambda x: x if x % 2 == 0 else None)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.keep(lambda x: x if x % 2 == 0 else None),
+                        xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5, 6])), [2, 4])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.keep(None)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.keep(lambda x: x if x % 2 == 0 else None),
+                        xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [2, 4, 5, 6])), [(2, 4), (6,)])
+
+
 class TestCat(unittest.TestCase):
     def test_cat_some(self):
         self.assertEqual(list(xf.xiter(xf.cat, [[1, 2, 3], [4, 5]])),

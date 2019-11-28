@@ -108,6 +108,10 @@ def remove(pred):
     return filter(lambda x: not pred(x))
 
 
+def keep(f):
+    return comp(map(f), filter(lambda x: x is not None))
+
+
 def cat(rf):
     return multi_arity(rf, rf, functools.partial(ireduce, rf))
 
