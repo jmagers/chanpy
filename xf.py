@@ -307,6 +307,22 @@ def reductions(f, init):
     return xform
 
 
+def interpose(sep):
+    def xform(rf):
+        is_initial = True
+
+        def step(result, val):
+            nonlocal is_initial
+            if is_initial:
+                is_initial = False
+                return rf(result, val)
+            sep_result = rf(result, sep)
+            return rf(sep_result, val)
+
+        return multi_arity(rf, rf, step)
+    return xform
+
+
 def replace(smap):
     def xform(rf):
         def step(result, val):
