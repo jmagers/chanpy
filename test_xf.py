@@ -204,6 +204,28 @@ class TestMapcat(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1])), [(1, 2), (3,)])
 
 
+class TestDistinct(unittest.TestCase):
+    def test_remove_duplicates(self):
+        self.assertEqual(list(xf.xiter(xf.distinct, [1, 2, 3, 2, 1, 3, 4, 5])),
+                         [1, 2, 3, 4, 5])
+
+    def test_none(self):
+        self.assertEqual(list(xf.xiter(xf.distinct, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.distinct, xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 1, 2, 3, 4, 5])), [1, 2])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.distinct(xf.identity)(lambda: 'success')(),
+                         'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.distinct, xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 1, 2, 3, 3])),
+                         [(1, 2), (3,)])
+
+
 class TestReductions(unittest.TestCase):
     def test_reductions_some(self):
         xform = xf.reductions(lambda x, y: x + y, 1)

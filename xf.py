@@ -160,6 +160,22 @@ def drop_while(pred):
     return xform
 
 
+def distinct(rf):
+    prev_vals = set()
+
+    def step(result, val):
+        if val in prev_vals:
+            return result
+        prev_vals.add(val)
+        return rf(result, val)
+
+    def complete(result):
+        prev_vals.clear()
+        return rf(result)
+
+    return multi_arity(rf, complete, step)
+
+
 def partition_all(n):
     def xform(rf):
         buffer = []
@@ -176,8 +192,9 @@ def partition_all(n):
         def complete(result):
             if len(buffer) == 0:
                 return rf(result)
-            flushedResult = unreduced(rf(result, tuple(buffer)))
-            return rf(flushedResult)
+            flushed_result = unreduced(rf(result, tuple(buffer)))
+            buffer.clear()
+            return rf(flushed_result)
 
         return multi_arity(rf, complete, step)
     return xform
