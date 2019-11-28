@@ -305,3 +305,12 @@ def reductions(f, init):
 
         return multi_arity(rf, complete, step)
     return xform
+
+
+def replace(smap):
+    def xform(rf):
+        def step(result, val):
+            return rf(result, smap.get(val, val))
+
+        return multi_arity(rf, rf, step)
+    return xform

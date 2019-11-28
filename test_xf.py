@@ -418,6 +418,27 @@ class TestReductions(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [2, 3])), [(1, 3), (6,)])
 
 
+class TestReplace(unittest.TestCase):
+    def test_replace_some(self):
+        xform = xf.replace({1: 'one', 2: 'two'})
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), ['one', 'two', 3])
+
+    def test_empty(self):
+        xform = xf.replace({1: 'one'})
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.replace({1: 'one'}), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), ['one', 2])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.replace({})(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.replace({1: 'one'}), xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [('one', 2), (3,)])
+
+
 class TestItransduce(unittest.TestCase):
     def test_itransduce_some(self):
         result = xf.itransduce(xf.filter(lambda x: x % 2 == 0),
