@@ -104,6 +104,10 @@ def filter(pred):
                                                        else result))
 
 
+def remove(pred):
+    return filter(lambda x: not pred(x))
+
+
 def cat(rf):
     return multi_arity(rf, rf, functools.partial(ireduce, rf))
 

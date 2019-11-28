@@ -38,6 +38,9 @@ class TestPartitionAll(unittest.TestCase):
         xform = xf.comp(xf.partition_all(1), xf.take(2))
         self.assertEqual(list(xf.xiter(xform, range(12))), [(0,), (1,)])
 
+    def test_arity_zero(self):
+        self.assertEqual(xf.partition_all(1)(lambda: 'success')(), 'success')
+
     def test_complete(self):
         xform = xf.partition_all(3)
         self.assertEqual(list(xf.xiter(xform, range(5))), [(0, 1, 2), (3, 4)])
@@ -84,8 +87,7 @@ class TestTakeWhile(unittest.TestCase):
         self.assertEqual(taken, [-1, -2])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.take_while(None)(lambda: 'success')(),
-                         'success')
+        self.assertEqual(xf.take_while(None)(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.take_while(lambda x: x < 4), xf.partition_all(2))
@@ -181,8 +183,7 @@ class TestDropWhile(unittest.TestCase):
         self.assertEqual(list(dropped), [3, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.drop_while(None)(lambda: 'success')(),
-                         'success')
+        self.assertEqual(xf.drop_while(None)(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.drop_while(lambda x: x < 3), xf.partition_all(2))
@@ -224,12 +225,32 @@ class TestFilter(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5, 6])), [2, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.filter(None)(lambda: 'success')(),
-                         'success')
+        self.assertEqual(xf.filter(None)(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.filter(lambda x: x % 2 == 0), xf.partition_all(2))
         self.assertEqual(list(xf.xiter(xform, [2, 4, 5, 6])), [(2, 4), (6,)])
+
+
+class TestRemove(unittest.TestCase):
+    def test_remove_some(self):
+        xform = xf.remove(lambda x: x % 2 == 0)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [1, 3])
+
+    def test_remove_none(self):
+        xform = xf.remove(lambda x: x % 2 == 0)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.remove(lambda x: x % 2 == 0), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5])), [1, 3])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.remove(None)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.remove(lambda x: x % 2 == 0), xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 5])), [(1, 3), (5,)])
 
 
 class TestCat(unittest.TestCase):
@@ -267,8 +288,7 @@ class TestMapcat(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 4, 16])), [1, 2, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.mapcat(None)(lambda: 'success')(),
-                         'success')
+        self.assertEqual(xf.mapcat(None)(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.mapcat(lambda x: [x, x * 2, x * 3]),
