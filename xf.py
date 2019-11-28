@@ -213,6 +213,9 @@ def dedupe(rf):
 
 
 def partition_all(n):
+    if n < 1 or n != int(n):
+        raise ValueError("n must be a nonnegative integer")
+
     def xform(rf):
         buffer = []
 

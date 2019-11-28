@@ -8,6 +8,41 @@ append_rf = xf.multi_arity(None, xf.identity, lambda x, y: x.append(y) or x)
 sum_rf = xf.multi_arity(None, xf.identity, lambda x, y: x + y)
 
 
+class TestPartitionAll(unittest.TestCase):
+    def test_partition_every(self):
+        xform = xf.partition_all(1)
+        self.assertEqual(list(xf.xiter(xform, range(3))), [(0,), (1,), (2,)])
+
+    def test_partition_pos(self):
+        xform = xf.partition_all(3)
+        self.assertEqual(list(xf.xiter(xform, range(6))),
+                         [(0, 1, 2), (3, 4, 5)])
+
+    def test_partition_empty(self):
+        xform = xf.partition_all(1)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_partition_fraction(self):
+        with self.assertRaises(ValueError):
+            xf.partition_all(1.5)
+
+    def test_partition_zero(self):
+        with self.assertRaises(ValueError):
+            xf.partition_all(0)
+
+    def test_partition_neg(self):
+        with self.assertRaises(ValueError):
+            xf.partition_all(-1)
+
+    def test_reduced(self):
+        xform = xf.comp(xf.partition_all(1), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, range(12))), [(0,), (1,)])
+
+    def test_complete(self):
+        xform = xf.partition_all(3)
+        self.assertEqual(list(xf.xiter(xform, range(5))), [(0, 1, 2), (3, 4)])
+
+
 class TestTake(unittest.TestCase):
     def test_take_pos(self):
         taken = list(xf.xiter(xf.take(2), [1, 2, 3, 4]))
@@ -73,15 +108,15 @@ class TestTakeNth(unittest.TestCase):
 
     def test_take_fraction(self):
         with self.assertRaises(ValueError):
-            xf.xiter(xf.take_nth(1.5), [1, 2, 3, 4])
+            xf.take_nth(1.5)
 
     def test_take_zero(self):
         with self.assertRaises(ValueError):
-            xf.xiter(xf.take_nth(0), [1, 2, 3, 4])
+            xf.take_nth(0)
 
-    def test_take_negative(self):
+    def test_take_nega(self):
         with self.assertRaises(ValueError):
-            xf.xiter(xf.take_nth(-1), [1, 2, 3, 4])
+            xf.take_nth(-1)
 
     def test_reduced(self):
         xform = xf.comp(xf.take_nth(3), xf.take(2))
