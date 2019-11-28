@@ -58,6 +58,43 @@ class TestTakeWhile(unittest.TestCase):
         self.assertEqual(list(dropped), [(1, 2), (3,)])
 
 
+class TestTakeNth(unittest.TestCase):
+    def test_take_every(self):
+        xform = xf.take_nth(1)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [1, 2, 3, 4])
+
+    def test_take_few(self):
+        xform = xf.take_nth(3)
+        self.assertEqual(list(xf.xiter(xform, range(12))), [0, 3, 6, 9])
+
+    def test_empty(self):
+        xform = xf.take_nth(1)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_take_fraction(self):
+        with self.assertRaises(ValueError):
+            xf.xiter(xf.take_nth(1.5), [1, 2, 3, 4])
+
+    def test_take_zero(self):
+        with self.assertRaises(ValueError):
+            xf.xiter(xf.take_nth(0), [1, 2, 3, 4])
+
+    def test_take_negative(self):
+        with self.assertRaises(ValueError):
+            xf.xiter(xf.take_nth(-1), [1, 2, 3, 4])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.take_nth(3), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, range(12))), [0, 3])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.take_nth(1)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.take_nth(1), xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(1, 2), (3,)])
+
+
 class TestDrop(unittest.TestCase):
     def test_drop_pos(self):
         dropped = list(xf.xiter(xf.drop(2), [1, 2, 3, 4]))

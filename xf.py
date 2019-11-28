@@ -126,6 +126,25 @@ def take(n):
     return xform
 
 
+def take_nth(n):
+    if n < 1 or n != int(n):
+        raise ValueError("n must be a nonnegative integer")
+
+    def xform(rf):
+        count = n
+
+        def step(result, val):
+            nonlocal count
+            if count >= n:
+                count = 1
+                return rf(result, val)
+            count += 1
+            return result
+
+        return multi_arity(rf, rf, step)
+    return xform
+
+
 def take_while(pred):
     def xform(rf):
         return multi_arity(rf, rf, lambda result, val: (rf(result, val)
