@@ -2,6 +2,10 @@ import functools
 from collections import deque
 
 
+class _UNDEFINED:
+    pass
+
+
 def comp(*funcs):
     ordered_funcs = reversed(funcs)
     try:
@@ -176,6 +180,19 @@ def distinct(rf):
     return multi_arity(rf, complete, step)
 
 
+def dedupe(rf):
+    prev_val = _UNDEFINED
+
+    def step(result, val):
+        nonlocal prev_val
+        if val == prev_val:
+            return result
+        prev_val = val
+        return rf(result, val)
+
+    return multi_arity(rf, rf, step)
+
+
 def partition_all(n):
     def xform(rf):
         buffer = []
@@ -201,16 +218,13 @@ def partition_all(n):
 
 
 def reductions(f, init):
-    class _INITIAL:
-        pass
-
     def xform(rf):
-        prev_state = _INITIAL
+        prev_state = _UNDEFINED
 
         def step(result, val):
             nonlocal prev_state
 
-            if prev_state is _INITIAL:
+            if prev_state is _UNDEFINED:
                 prev_state = init
                 result = rf(result, init)
                 if is_reduced(result):
@@ -223,7 +237,7 @@ def reductions(f, init):
                     else new_result)
 
         def complete(result):
-            if prev_state is _INITIAL:
+            if prev_state is _UNDEFINED:
                 tmp_result = unreduced(rf(result, init))
             else:
                 tmp_result = result

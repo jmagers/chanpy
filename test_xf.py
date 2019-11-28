@@ -226,6 +226,27 @@ class TestDistinct(unittest.TestCase):
                          [(1, 2), (3,)])
 
 
+class TestDedupe(unittest.TestCase):
+    def test_remove_duplicates(self):
+        self.assertEqual(list(xf.xiter(xf.dedupe, [1, 1, 1, 2, 2, 3, 2, 3])),
+                         [1, 2, 3, 2, 3])
+
+    def test_none(self):
+        self.assertEqual(list(xf.xiter(xf.dedupe, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.dedupe, xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 1, 2, 2, 3, 4])), [1, 2])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.dedupe(xf.identity)(lambda: 'success')(),
+                         'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.dedupe, xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 2, 3])), [(1, 2), (3,)])
+
+
 class TestReductions(unittest.TestCase):
     def test_reductions_some(self):
         xform = xf.reductions(lambda x, y: x + y, 1)
