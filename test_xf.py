@@ -49,7 +49,7 @@ class TestTakeWhile(unittest.TestCase):
         self.assertEqual(taken, [-1, -2])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.take_while(xf.identity)(lambda: 'success')(),
+        self.assertEqual(xf.take_while(None)(lambda: 'success')(),
                          'success')
 
     def test_complete(self):
@@ -109,7 +109,7 @@ class TestDropWhile(unittest.TestCase):
         self.assertEqual(list(dropped), [3, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.drop_while(xf.identity)(lambda: 'success')(),
+        self.assertEqual(xf.drop_while(None)(lambda: 'success')(),
                          'success')
 
     def test_complete(self):
@@ -131,7 +131,7 @@ class TestMap(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [2, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.map(xf.identity)(lambda: 'success')(), 'success')
+        self.assertEqual(xf.map(None)(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.map(lambda x: x * 2), xf.partition_all(2))
@@ -152,7 +152,7 @@ class TestFilter(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5, 6])), [2, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.filter(xf.identity)(lambda: 'success')(),
+        self.assertEqual(xf.filter(None)(lambda: 'success')(),
                          'success')
 
     def test_complete(self):
@@ -173,7 +173,7 @@ class TestCat(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [[1, 2], [3]])), [1, 2])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.cat(xf.identity)(lambda: 'success')(), 'success')
+        self.assertEqual(xf.cat(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.cat, xf.partition_all(2))
@@ -195,7 +195,7 @@ class TestMapcat(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 4, 16])), [1, 2, 4])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.mapcat(xf.identity)(lambda: 'success')(),
+        self.assertEqual(xf.mapcat(None)(lambda: 'success')(),
                          'success')
 
     def test_complete(self):
@@ -217,8 +217,7 @@ class TestDistinct(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 1, 2, 3, 4, 5])), [1, 2])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.distinct(xf.identity)(lambda: 'success')(),
-                         'success')
+        self.assertEqual(xf.distinct(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.distinct, xf.partition_all(2))
@@ -239,12 +238,35 @@ class TestDedupe(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 1, 2, 2, 3, 4])), [1, 2])
 
     def test_arity_zero(self):
-        self.assertEqual(xf.dedupe(xf.identity)(lambda: 'success')(),
-                         'success')
+        self.assertEqual(xf.dedupe(lambda: 'success')(), 'success')
 
     def test_complete(self):
         xform = xf.comp(xf.dedupe, xf.partition_all(2))
         self.assertEqual(list(xf.xiter(xform, [1, 2, 2, 3])), [(1, 2), (3,)])
+
+
+class TestPartitionBy(unittest.TestCase):
+    def test_partition_some(self):
+        xform = xf.partition_by(lambda x: x % 2 == 0)
+        self.assertEqual(list(xf.xiter(xform, [1, 3, 5, 2, 4, 8, 9])),
+                         [(1, 3, 5), (2, 4, 8), (9,)])
+
+    def test_partition_none(self):
+        xform = xf.partition_by(None)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.partition_by(lambda x: x % 2 == 0), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 3, 2, 4, 5, 7])),
+                         [(1, 3), (2, 4)])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.partition_by(None)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.partition_by(lambda x: x % 2 == 0), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [2, 4, 6, 1, 3, 5, 8])),
+                         [(2, 4, 6), (1, 3, 5)])
 
 
 class TestReductions(unittest.TestCase):

@@ -202,9 +202,39 @@ def partition_all(n):
             buffer.append(val)
             if len(buffer) < n:
                 return result
-            new_result = rf(result, tuple(buffer))
+            buf = tuple(buffer)
             buffer.clear()
-            return new_result
+            return rf(result, buf)
+
+        def complete(result):
+            if len(buffer) == 0:
+                return rf(result)
+            flushed_result = unreduced(rf(result, tuple(buffer)))
+            buffer.clear()
+            return rf(flushed_result)
+
+        return multi_arity(rf, complete, step)
+    return xform
+
+
+def partition_by(f):
+    def xform(rf):
+        prev_ret = _UNDEFINED
+        buffer = []
+
+        def step(result, val):
+            nonlocal prev_ret, buffer
+
+            ret = f(val)
+            if prev_ret is _UNDEFINED or ret == prev_ret:
+                prev_ret = ret
+                buffer.append(val)
+                return result
+
+            prev_ret = ret
+            buf = tuple(buffer)
+            buffer = [val]
+            return rf(result, buf)
 
         def complete(result):
             if len(buffer) == 0:
