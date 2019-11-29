@@ -97,6 +97,19 @@ def map(f):
                                   lambda result, val: rf(result, f(val)))
 
 
+def map_indexed(f):
+    def xform(rf):
+        i = -1
+
+        def step(result, val):
+            nonlocal i
+            i += 1
+            return rf(result, f(i, val))
+
+        return multi_arity(rf, rf, step)
+    return xform
+
+
 def filter(pred):
     return lambda rf: multi_arity(rf, rf,
                                   lambda result, val: (rf(result, val)

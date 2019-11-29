@@ -197,7 +197,8 @@ class TestMap(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [2, 4, 6])
 
     def test_map_none(self):
-        self.assertEqual(list(xf.xiter(xf.identity, [])), [])
+        xform = xf.map(None)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
 
     def test_reduced(self):
         xform = xf.comp(xf.map(lambda x: x * 2), xf.take(2))
@@ -209,6 +210,31 @@ class TestMap(unittest.TestCase):
     def test_complete(self):
         xform = xf.comp(xf.map(lambda x: x * 2), xf.partition_all(2))
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(2, 4), (6,)])
+
+
+class TestMapIndexed(unittest.TestCase):
+    def test_map_some(self):
+        xform = xf.map_indexed(lambda i, x: {i: x})
+        self.assertEqual(list(xf.xiter(xform, ['zero', 'one', 'two'])),
+                         [{0: 'zero'}, {1: 'one'}, {2: 'two'}])
+
+    def test_map_empty(self):
+        xform = xf.map_indexed(None)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.map_indexed(lambda i, x: {i: x}), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, ['zero', 'one', '_', '_'])),
+                         [{0: 'zero'}, {1: 'one'}])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.map_indexed(None)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.map_indexed(lambda i, x: {i: x}),
+                        xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, ['zero', 'one', 'two'])),
+                         [({0: 'zero'}, {1: 'one'}), ({2: 'two'},)])
 
 
 class TestFilter(unittest.TestCase):
