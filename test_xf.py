@@ -512,6 +512,46 @@ class TestReplace(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [('one', 2), (3,)])
 
 
+class TestRandomSample(unittest.TestCase):
+    def test_1(self):
+        xform = xf.random_sample(1)
+        self.assertEqual(list(xf.xiter(xform, range(100))), list(range(100)))
+
+    def test_0(self):
+        xform = xf.random_sample(0)
+        self.assertEqual(list(xf.xiter(xform, range(100))), [])
+
+    def test_neg(self):
+        xform = xf.random_sample(-1)
+        self.assertEqual(list(xf.xiter(xform, range(100))), [])
+
+    def test_gt_1(self):
+        xform = xf.random_sample(2)
+        self.assertEqual(list(xf.xiter(xform, range(100))), list(range(100)))
+
+    def test_fraction(self):
+        xform = xf.random_sample(0.5)
+        vals = set(range(1000))
+        results = set(xf.xiter(xform, vals))
+        self.assertTrue(results.issubset(vals))
+        self.assertTrue(0 < len(results) < 1000)  # Very unlikely to be false
+
+    def test_empty(self):
+        xform = xf.random_sample(1)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.random_sample(1), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [1, 2])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.random_sample(1)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.random_sample(1), xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(1, 2), (3,)])
+
+
 class TestItransduce(unittest.TestCase):
     def test_itransduce_some(self):
         result = xf.itransduce(xf.filter(lambda x: x % 2 == 0),

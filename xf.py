@@ -1,4 +1,5 @@
 import functools
+import random
 from collections import deque
 
 
@@ -347,3 +348,7 @@ def replace(smap):
 
         return multi_arity(rf, rf, step)
     return xform
+
+
+def random_sample(prob):
+    return filter(lambda _: random.random() < prob)
