@@ -284,7 +284,7 @@ class TestKeep(unittest.TestCase):
         xform = xf.keep(lambda x: x if x % 2 == 0 else None)
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [2, 4])
 
-    def test_remove_empty(self):
+    def test_keep_empty(self):
         xform = xf.keep(lambda x: x if x % 2 == 0 else None)
         self.assertEqual(list(xf.xiter(xform, [])), [])
 
@@ -300,6 +300,32 @@ class TestKeep(unittest.TestCase):
         xform = xf.comp(xf.keep(lambda x: x if x % 2 == 0 else None),
                         xf.partition_all(2))
         self.assertEqual(list(xf.xiter(xform, [2, 4, 5, 6])), [(2, 4), (6,)])
+
+
+class TestKeepIndexed(unittest.TestCase):
+    @staticmethod
+    def even_set(i, x):
+        return {x} if x % 2 == 0 else None
+
+    def test_keep_some(self):
+        xform = xf.keep_indexed(self.even_set)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])), [{2}, {4}])
+
+    def test_keep_empty(self):
+        xform = xf.keep_indexed(None)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_reduced(self):
+        xform = xf.comp(xf.keep_indexed(self.even_set), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [2, 3, 4, 5, 6])), [{2}, {4}])
+
+    def test_arity_zero(self):
+        self.assertEqual(xf.keep_indexed(None)(lambda: 'success')(), 'success')
+
+    def test_complete(self):
+        xform = xf.comp(xf.keep_indexed(self.even_set), xf.partition_all(2))
+        self.assertEqual(list(xf.xiter(xform, [2, 4, 5, 6])),
+                         [({2}, {4}), ({6},)])
 
 
 class TestCat(unittest.TestCase):

@@ -125,6 +125,10 @@ def keep(f):
     return comp(map(f), filter(lambda x: x is not None))
 
 
+def keep_indexed(f):
+    return comp(map_indexed(f), filter(lambda x: x is not None))
+
+
 def cat(rf):
     return multi_arity(rf, rf, functools.partial(ireduce, rf))
 
