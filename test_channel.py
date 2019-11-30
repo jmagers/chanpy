@@ -1,12 +1,40 @@
 #!/usr/bin/env python3
 
 import asyncio
-import threading
+import concurrent.futures
 import time
+import threading
 import unittest
 import xf
 import channel as c
 from channel import chan
+
+
+class TestThreadCall(unittest.TestCase):
+    def test_non_none_return_value(self):
+        def thread():
+            return 'success'
+
+        ch = c.thread_call(thread)
+        self.assertEqual(ch.t_get(), 'success')
+        self.assertIsNone(ch.t_get())
+
+    def test_none_return_value(self):
+        def thread():
+            return None
+
+        ch = c.thread_call(thread)
+        self.assertIsNone(ch.t_get())
+
+    def test_executor(self):
+        def thread():
+            time.sleep(0.1)
+            return threading.get_ident()
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        result_chs = [c.thread_call(thread, executor) for _ in range(4)]
+        t_ids = {ch.t_get() for ch in result_chs}
+        self.assertEqual(len(t_ids), 2)
 
 
 class TestAsync(unittest.TestCase):

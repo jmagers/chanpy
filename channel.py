@@ -614,7 +614,7 @@ def run_callback(cb, loop):
     call_soon(cb, loop, eager=True).t_get()
 
 
-def thread_call(f):
+def thread_call(f, executor=None):
     ch = chan(1)
 
     def wrapper():
@@ -623,7 +623,10 @@ def thread_call(f):
             ch.t_put(ret)
         ch.close()
 
-    threading.Thread(target=wrapper).start()
+    if executor is None:
+        threading.Thread(target=wrapper).start()
+    else:
+        executor.submit(wrapper)
     return ch
 
 
