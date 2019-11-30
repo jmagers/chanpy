@@ -7,6 +7,10 @@ class _UNDEFINED:
     pass
 
 
+def identity(x):
+    return x
+
+
 def comp(*funcs):
     ordered_funcs = reversed(funcs)
     try:
@@ -31,7 +35,7 @@ def multi_arity(*funcs):
             if func is None:
                 raise IndexError
         except IndexError:
-            raise ValueError('wrong number of arguments supplied')
+            raise TypeError('wrong number of arguments supplied')
         return func(*args)
     return dispatch
 
@@ -57,7 +61,7 @@ def unreduced(x):
     return x.value if is_reduced(x) else x
 
 
-def ireduce(rf, init, coll):
+def _ireduce(rf, init, coll):
     result = init
     for x in coll:
         result = rf(result, x)
@@ -66,13 +70,21 @@ def ireduce(rf, init, coll):
     return result
 
 
-def itransduce(xform, rf, init, coll):
+def ireduce(rf, init, coll=_UNDEFINED):
+    if coll is _UNDEFINED:
+        return _ireduce(rf, rf(), init)
+    return _ireduce(rf, init, coll)
+
+
+def _itransduce(xform, rf, init, coll):
     xrf = xform(rf)
     return xrf(ireduce(xrf, init, coll))
 
 
-def identity(x):
-    return x
+def itransduce(xform, rf, init, coll=_UNDEFINED):
+    if coll is _UNDEFINED:
+        return _itransduce(xform, rf, rf(), init)
+    return _itransduce(xform, rf, init, coll)
 
 
 def xiter(xform, coll):

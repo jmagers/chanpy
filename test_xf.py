@@ -4,8 +4,8 @@ import unittest
 import xf
 
 
-append_rf = xf.multi_arity(None, xf.identity, lambda x, y: x.append(y) or x)
-sum_rf = xf.multi_arity(None, xf.identity, lambda x, y: x + y)
+append_rf = xf.multi_arity(list, xf.identity, lambda x, y: x.append(y) or x)
+sum_rf = xf.multi_arity(lambda: 0, xf.identity, lambda x, y: x + y)
 
 
 class TestPartitionAll(unittest.TestCase):
@@ -552,6 +552,21 @@ class TestRandomSample(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(1, 2), (3,)])
 
 
+class TestIreduce(unittest.TestCase):
+    def test_some_no_init(self):
+        result = xf.ireduce(sum_rf, [1, 2, 3, 8])
+        self.assertEqual(result, 14)
+
+    def test_empty_no_init(self):
+        result = xf.ireduce(sum_rf, [])
+        self.assertEqual(result, 0)
+
+    def test_no_init_no_arity_zero(self):
+        with self.assertRaises(TypeError):
+            result = xf.ireduce(lambda x, y: x + y, [])
+            self.assertEqual(result, 0)
+
+
 class TestItransduce(unittest.TestCase):
     def test_itransduce_some(self):
         result = xf.itransduce(xf.filter(lambda x: x % 2 == 0),
@@ -559,6 +574,22 @@ class TestItransduce(unittest.TestCase):
                                1,
                                [2, 3, 8])
         self.assertEqual(result, 11)
+
+    def test_itransduce_some_no_init(self):
+        result = xf.itransduce(xf.filter(lambda x: x % 2 == 0),
+                               sum_rf,
+                               [1, 2, 3, 8])
+        self.assertEqual(result, 10)
+
+    def test_itransduce_empty_no_init(self):
+        result = xf.itransduce(xf.filter(lambda x: x % 2 == 0), sum_rf, [])
+        self.assertEqual(result, 0)
+
+    def test_itransduce_empty_no_init_no_arity_zero(self):
+        with self.assertRaises(TypeError):
+            xf.itransduce(xf.filter(lambda x: x % 2 == 0),
+                          lambda x, y: x + y,
+                          [])
 
     def test_itransduce_init_only(self):
         result = xf.itransduce(xf.filter(None), xf.identity, 1, [])
