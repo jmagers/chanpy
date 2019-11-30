@@ -552,6 +552,21 @@ class TestRandomSample(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(1, 2), (3,)])
 
 
+class TestCompleting(unittest.TestCase):
+    def test_default_cf(self):
+        rf = xf.completing(xf.multi_arity(lambda: 0, None, lambda x, y: x + y))
+        self.assertEqual(rf(), 0)
+        self.assertEqual(rf(1, 2), 3)
+        self.assertEqual(rf('success'), 'success')
+
+    def test_custom_cf(self):
+        rf = xf.completing(xf.multi_arity(lambda: 0, None, lambda x, y: x + y),
+                           str)
+        self.assertEqual(rf(), 0)
+        self.assertEqual(rf(1, 2), 3)
+        self.assertEqual(rf(100), '100')
+
+
 class TestIreduce(unittest.TestCase):
     def test_some_no_init(self):
         result = xf.ireduce(sum_rf, [1, 2, 3, 8])

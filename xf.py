@@ -61,6 +61,15 @@ def unreduced(x):
     return x.value if is_reduced(x) else x
 
 
+def completing(rf, cf=identity):
+    @functools.wraps(rf)
+    def wrapper(*args):
+        if len(args) == 1:
+            return cf(*args)
+        return rf(*args)
+    return wrapper
+
+
 def _ireduce(rf, init, coll):
     result = init
     for x in coll:
