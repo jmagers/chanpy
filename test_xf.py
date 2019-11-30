@@ -22,17 +22,29 @@ class TestPartitionAll(unittest.TestCase):
         xform = xf.partition_all(1)
         self.assertEqual(list(xf.xiter(xform, [])), [])
 
-    def test_partition_fraction(self):
+    def test_partition_n_fraction(self):
         with self.assertRaises(ValueError):
             xf.partition_all(1.5)
 
-    def test_partition_zero(self):
+    def test_partition_n_zero(self):
         with self.assertRaises(ValueError):
             xf.partition_all(0)
 
-    def test_partition_neg(self):
+    def test_partition_n_neg(self):
         with self.assertRaises(ValueError):
             xf.partition_all(-1)
+
+    def test_partition_step_fraction(self):
+        with self.assertRaises(ValueError):
+            xf.partition_all(1, 1.5)
+
+    def test_partition_step_zero(self):
+        with self.assertRaises(ValueError):
+            xf.partition_all(1, 0)
+
+    def test_partition_step_neg(self):
+        with self.assertRaises(ValueError):
+            xf.partition_all(1, -1)
 
     def test_reduced(self):
         xform = xf.comp(xf.partition_all(1), xf.take(2))
@@ -44,6 +56,21 @@ class TestPartitionAll(unittest.TestCase):
     def test_complete(self):
         xform = xf.partition_all(3)
         self.assertEqual(list(xf.xiter(xform, range(5))), [(0, 1, 2), (3, 4)])
+
+    def test_partition_with_smaller_step(self):
+        xform = xf.partition_all(3, 1)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5])),
+                         [(1, 2, 3), (2, 3, 4), (3, 4, 5), (4, 5), (5,)])
+
+    def test_partition_with_smaller_step_reduced_during_complete(self):
+        xform = xf.comp(xf.partition_all(3, 1), xf.take(4))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5])),
+                         [(1, 2, 3), (2, 3, 4), (3, 4, 5), (4, 5)])
+
+    def test_partition_with_larger_step(self):
+        xform = xf.partition_all(2, 4)
+        self.assertEqual(list(xf.xiter(xform, range(1, 10))),
+                         [(1, 2), (5, 6), (9,)])
 
 
 class TestTake(unittest.TestCase):

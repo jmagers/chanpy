@@ -259,30 +259,48 @@ def dedupe(rf):
     return multi_arity(rf, rf, step)
 
 
-def partition_all(n):
+def partition_all(n, step=None):
+    if step is None:
+        step = n
     if n < 1 or n != int(n):
         raise ValueError("n must be a nonnegative integer")
+    if step < 1 or step != int(step):
+        raise ValueError("step must be a nonnegative integer")
 
     def xform(rf):
         buffer = []
+        remaining_drops = 0
 
-        def step(result, val):
-            nonlocal buffer
+        def step_f(result, val):
+            nonlocal buffer, remaining_drops
+
+            if remaining_drops > 0:
+                remaining_drops -= 1
+                return result
+
             buffer.append(val)
             if len(buffer) < n:
                 return result
+
             buf = tuple(buffer)
-            buffer.clear()
+            buffer = buffer[step:]
+            remaining_drops = max(0, step - n)
             return rf(result, buf)
 
         def complete(result):
-            if len(buffer) == 0:
-                return rf(result)
-            flushed_result = unreduced(rf(result, tuple(buffer)))
-            buffer.clear()
-            return rf(flushed_result)
+            nonlocal buffer
+            new_result = result
 
-        return multi_arity(rf, complete, step)
+            while len(buffer) > 0:
+                buf = tuple(buffer)
+                buffer = buffer[step:]
+                new_result = rf(new_result, buf)
+                if is_reduced(new_result):
+                    buffer.clear()
+
+            return rf(unreduced(new_result))
+
+        return multi_arity(rf, complete, step_f)
     return xform
 
 
