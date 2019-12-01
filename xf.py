@@ -98,21 +98,23 @@ def itransduce(xform, rf, init, coll=_UNDEFINED):
 
 
 def xiter(xform, coll):
+    buffer = deque()
+
     def flush_buffer(buf):
+        assert buf is buffer, 'xform returned invalid value'
         while len(buf) > 0:
             yield buf.popleft()
 
     rf = xform(multi_arity(None,
                            identity,
                            lambda result, val: result.append(val) or result))
-    buffer = deque()
     for x in coll:
-        buffer = rf(buffer, x)
-        yield from flush_buffer(unreduced(buffer))
-        if is_reduced(buffer):
+        ret = rf(buffer, x)
+        yield from flush_buffer(unreduced(ret))
+        if is_reduced(ret):
             break
 
-    yield from flush_buffer(rf(deque()))
+    yield from flush_buffer(rf(buffer))
 
 
 def map(f):
@@ -174,9 +176,31 @@ def take(n):
     return xform
 
 
+def take_last(n):
+    def xform(rf):
+        buffer = deque()
+
+        def step(result, val):
+            buffer.append(val)
+            if len(buffer) > n:
+                buffer.popleft()
+            return result
+
+        def complete(result):
+            new_result = result
+            while len(buffer) > 0:
+                new_result = rf(new_result, buffer.popleft())
+                if is_reduced(new_result):
+                    buffer.clear()
+            return rf(unreduced(new_result))
+
+        return multi_arity(rf, complete, step)
+    return xform
+
+
 def take_nth(n):
     if n < 1 or n != int(n):
-        raise ValueError("n must be a nonnegative integer")
+        raise ValueError('n must be a nonnegative integer')
 
     def xform(rf):
         count = n
@@ -211,6 +235,24 @@ def drop(n):
             return result if remaining > -1 else rf(result, val)
 
         return multi_arity(rf, rf, step)
+    return xform
+
+
+def drop_last(n):
+    def xform(rf):
+        buffer = deque()
+
+        def step(result, val):
+            buffer.append(val)
+            if len(buffer) > n:
+                return rf(result, buffer.popleft())
+            return result
+
+        def complete(result):
+            buffer.clear()
+            return rf(result)
+
+        return multi_arity(rf, complete, step)
     return xform
 
 
@@ -264,9 +306,9 @@ def partition_all(n, step=None):
     if step is None:
         step = n
     if n < 1 or n != int(n):
-        raise ValueError("n must be a nonnegative integer")
+        raise ValueError('n must be a nonnegative integer')
     if step < 1 or step != int(step):
-        raise ValueError("step must be a nonnegative integer")
+        raise ValueError('step must be a nonnegative integer')
 
     def xform(rf):
         buffer = []
