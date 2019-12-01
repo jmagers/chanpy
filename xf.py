@@ -142,8 +142,17 @@ def filter(pred):
                                                        else result))
 
 
+def filter_indexed(pred):
+    return comp(map_indexed(lambda i, x: x if pred(i, x) else _UNDEFINED),
+                filter(lambda x: x is not _UNDEFINED))
+
+
 def remove(pred):
     return filter(lambda x: not pred(x))
+
+
+def remove_indexed(pred):
+    return filter_indexed(lambda i, x: not pred(i, x))
 
 
 def keep(f):
@@ -201,20 +210,7 @@ def take_last(n):
 def take_nth(n):
     if n < 1 or n != int(n):
         raise ValueError('n must be a nonnegative integer')
-
-    def xform(rf):
-        count = n
-
-        def step(result, val):
-            nonlocal count
-            if count >= n:
-                count = 1
-                return rf(result, val)
-            count += 1
-            return result
-
-        return multi_arity(rf, rf, step)
-    return xform
+    return filter_indexed(lambda i, _: i % n == 0)
 
 
 def take_while(pred):
