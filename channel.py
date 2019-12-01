@@ -180,7 +180,7 @@ class FlagFuture(asyncio.Future):
         return super().cancel()
 
 
-def _create_future_deliver_fn(future):
+def future_deliver_fn(future):
     def set_result(result):
         try:
             asyncio.Future.set_result(future, result)
@@ -233,10 +233,22 @@ class Chan:
         self._buf_rf = ex_handler_xform(xform(rf))
 
     def a_put(self, val, *, wait=True):
-        return self._a_op(lambda h: self._put(h, val), wait)
+        flag = create_flag()
+        future = FlagFuture(flag)
+        handler = FlagHandler(flag, future_deliver_fn(future), wait)
+        ret = self._put(handler, val)
+        if ret is not None:
+            asyncio.Future.set_result(future, ret[0])
+        return future
 
     def a_get(self, *, wait=True):
-        return self._a_op(self._get, wait)
+        flag = create_flag()
+        future = FlagFuture(flag)
+        handler = FlagHandler(flag, future_deliver_fn(future), wait)
+        ret = self._get(handler)
+        if ret is not None:
+            asyncio.Future.set_result(future, ret[0])
+        return future
 
     def t_put(self, val, *, wait=True):
         prom = Promise()
@@ -262,15 +274,6 @@ class Chan:
         with self._lock:
             self._cleanup()
             self._close()
-
-    @staticmethod
-    def _a_op(op, wait):
-        flag = create_flag()
-        future = FlagFuture(flag)
-        ret = op(FlagHandler(flag, _create_future_deliver_fn(future), wait))
-        if ret is not None:
-            asyncio.Future.set_result(future, ret[0])
-        return future
 
     def _put(self, handler, val):
         if val is None:
@@ -475,7 +478,7 @@ def _alts(flag, deliver_fn, ports, priority, default):
 def a_alts(ports, *, priority=False, default=_UNDEFINED):
     flag = create_flag()
     future = FlagFuture(flag)
-    ret = _alts(flag, _create_future_deliver_fn(future), ports,
+    ret = _alts(flag, future_deliver_fn(future), ports,
                 priority, default)
     if ret is not None:
         asyncio.Future.set_result(future, ret)
