@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import random
 import threading
 import xf
@@ -92,7 +93,29 @@ def create_flag():
     return {'lock': threading.Lock(), 'is_active': True}
 
 
-class FnHandler:
+@contextlib.contextmanager
+def acquire_handlers(*handlers):
+    # Consistent lock acquisition order
+    for h in sorted(handlers, key=lambda h: h.lock_id):
+        is_acquired = h.acquire()
+        assert is_acquired
+
+    try:
+        yield True
+    finally:
+        for h in handlers:
+            h.release()
+
+
+class HandlerManagerMixin:
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, e_type, e_val, traceback):
+        self.release()
+
+
+class FnHandler(HandlerManagerMixin):
     def __init__(self, cb, is_blockable=True):
         self._cb = cb
         self.is_blockable = is_blockable
@@ -100,7 +123,7 @@ class FnHandler:
         self.is_active = True
 
     def acquire(self):
-        pass
+        return True
 
     def release(self):
         pass
@@ -109,7 +132,7 @@ class FnHandler:
         return self._cb
 
 
-class FlagHandler:
+class FlagHandler(HandlerManagerMixin):
     def __init__(self, flag, cb, is_blockable=True):
         self._flag = flag
         self._cb = cb
@@ -121,7 +144,7 @@ class FlagHandler:
         return self._flag['is_active']
 
     def acquire(self):
-        self._flag['lock'].acquire()
+        return self._flag['lock'].acquire()
 
     def release(self):
         self._flag['lock'].release()
@@ -138,10 +161,12 @@ class FlagFuture(asyncio.Future):
         super().__init__(loop=asyncio.get_running_loop())
 
     def set_result(self, result):
-        assert False
+        raise AssertionError('cannot call set_result on a future provided by '
+                             'a channel')
 
     def set_exception(self, exception):
-        assert False
+        raise AssertionError('cannot call set_exception on a future provided '
+                             'by a channel')
 
     def cancel(self):
         with self.__flag['lock']:
@@ -258,13 +283,10 @@ class Chan:
 
             # Attempt to transfer val onto buf
             if self._buf is not None and not self._buf.is_full():
-                try:
-                    handler.acquire()
+                with handler:
                     if not handler.is_active:
-                        return False,
+                        return False
                     handler.commit()
-                finally:
-                    handler.release()
 
                 self._buf_put(val)
                 self._distribute_buf_vals()
@@ -274,21 +296,11 @@ class Chan:
             if self._buf is None:
                 while len(self._takes) > 0:
                     taker = self._takes.popleft()
-                    if handler.lock_id < taker.lock_id:
-                        handler.acquire()
-                        taker.acquire()
-                    else:
-                        taker.acquire()
-                        handler.acquire()
-                    taker_cb = None
-                    if handler.is_active and taker.is_active:
-                        handler.commit()
-                        taker_cb = taker.commit()
-                        taker_cb(val)
-                    handler.release()
-                    taker.release()
-                    if taker_cb is not None:
-                        return True,
+                    with acquire_handlers(handler, taker):
+                        if handler.is_active and taker.is_active:
+                            handler.commit()
+                            taker.commit()(val)
+                            return True,
 
             if not handler.is_blockable:
                 return self._fail_op(handler, False)
@@ -304,24 +316,20 @@ class Chan:
 
             # Attempt to take val from buf
             if self._buf is not None and len(self._buf) > 0:
-                try:
-                    handler.acquire()
+                with handler:
                     if not handler.is_active:
                         return None,
                     handler.commit()
-                finally:
-                    handler.release()
 
                 ret = self._buf.get()
 
                 # Transfer vals from putters onto buf
                 while len(self._puts) > 0 and not self._buf.is_full():
                     putter, val = self._puts.popleft()
-                    putter.acquire()
-                    if putter.is_active:
-                        putter.commit()(True)
-                        self._buf_put(val)
-                    putter.release()
+                    with putter:
+                        if putter.is_active:
+                            putter.commit()(True)
+                            self._buf_put(val)
 
                 self._complete_xform_if_ready()
                 return ret,
@@ -330,21 +338,11 @@ class Chan:
             if self._buf is None:
                 while len(self._puts) > 0:
                     putter, val = self._puts.popleft()
-                    if handler.lock_id < putter.lock_id:
-                        handler.acquire()
-                        putter.acquire()
-                    else:
-                        putter.acquire()
-                        handler.acquire()
-                    putter_cb = None
-                    if handler.is_active and putter.is_active:
-                        handler.commit()
-                        putter_cb = putter.commit()
-                        putter_cb(True)
-                    handler.release()
-                    putter.release()
-                    if putter_cb is not None:
-                        return val,
+                    with acquire_handlers(handler, putter):
+                        if handler.is_active and putter.is_active:
+                            handler.commit()
+                            putter.commit()(True)
+                            return val,
 
             if self._is_closed or not handler.is_blockable:
                 return self._fail_op(handler, None)
@@ -360,34 +358,28 @@ class Chan:
 
     @staticmethod
     def _fail_op(handler, val):
-        handler.acquire()
-        try:
+        with handler:
             if handler.is_active:
                 handler.commit()
                 return val,
-            return
-        finally:
-            handler.release()
 
     def _buf_put(self, val):
         if xf.is_reduced(self._buf_rf(None, val)):
             # If reduced value is returned then no more input is allowed onto
             # buf. To ensure this, remove all pending puts and close ch.
             for putter, _ in self._puts:
-                putter.acquire()
-                if putter.is_active:
-                    putter.commit()(False)
-                putter.release()
+                with putter:
+                    if putter.is_active:
+                        putter.commit()(False)
             self._puts.clear()
             self._close()
 
     def _distribute_buf_vals(self):
         while len(self._takes) > 0 and len(self._buf) > 0:
             taker = self._takes.popleft()
-            taker.acquire()
-            if taker.is_active:
-                taker.commit()(self._buf.get())
-            taker.release()
+            with taker:
+                if taker.is_active:
+                    taker.commit()(self._buf.get())
 
     def _complete_xform_if_ready(self):
         """Calls the xform completion arity exactly once iff all input has been
@@ -408,10 +400,9 @@ class Chan:
         # Remove pending takes
         # No-op if there are pending puts or buffer isn't empty
         for taker in self._takes:
-            taker.acquire()
-            if taker.is_active:
-                taker.commit()(None)
-            taker.release()
+            with taker:
+                if taker.is_active:
+                    taker.commit()(None)
         self._takes.clear()
 
     async def __aiter__(self):
@@ -475,13 +466,10 @@ def _alts(flag, deliver_fn, ports, priority, default):
             return ret[0], ch
 
     if default is not _UNDEFINED:
-        try:
-            flag['lock'].acquire()
+        with flag['lock']:
             if flag['is_active']:
                 flag['is_active'] = False
                 return default, 'default'
-        finally:
-            flag['lock'].release()
 
 
 def a_alts(ports, *, priority=False, default=_UNDEFINED):
