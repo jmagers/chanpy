@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
 import asyncio
-import concurrent.futures
 import time
 import threading
 import unittest
 import xf
 import channel as c
 from channel import chan
+from concurrent.futures import ThreadPoolExecutor
 
 
 class TestThreadCall(unittest.TestCase):
@@ -29,12 +29,12 @@ class TestThreadCall(unittest.TestCase):
     def test_executor(self):
         def thread():
             time.sleep(0.1)
-            return threading.get_ident()
+            return threading.current_thread().name
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-        result_chs = [c.thread_call(thread, executor) for _ in range(4)]
-        t_ids = {ch.t_get() for ch in result_chs}
-        self.assertEqual(len(t_ids), 2)
+        executor = ThreadPoolExecutor(max_workers=1,
+                                      thread_name_prefix='executor')
+        thread_name = c.thread_call(thread, executor).t_get()
+        self.assertTrue(thread_name.startswith('executor'))
 
 
 class TestAsync(unittest.TestCase):
@@ -1978,6 +1978,20 @@ class TestAsyncPut(unittest.TestCase):
         self.assertIs(val, True)
         self.assertNotEqual(thread_id, threading.get_ident())
 
+    def test_cb_called_on_executor_if_buffer_not_full(self):
+        prom = c.Promise()
+        executor = ThreadPoolExecutor(max_workers=1,
+                                      thread_name_prefix='executor')
+        c.async_put(chan(1),
+                    'val',
+                    lambda x: prom.deliver([x,
+                                            threading.current_thread().name]),
+                    on_caller=False,
+                    executor=executor)
+        val, thread_name = prom.deref()
+        self.assertIs(val, True)
+        self.assertTrue(thread_name.startswith('executor'))
+
 
 class TestAsyncGet(unittest.TestCase):
     def test_return_none_if_buffer_not_empty(self):
@@ -2017,6 +2031,20 @@ class TestAsyncGet(unittest.TestCase):
         val, thread_id = prom.deref()
         self.assertEqual(val, 'val')
         self.assertNotEqual(thread_id, threading.get_ident())
+
+    def test_cb_called_on_executor_if_buffer_not_empty(self):
+        prom = c.Promise()
+        ch = chan(1)
+        executor = ThreadPoolExecutor(max_workers=1,
+                                      thread_name_prefix='executor')
+        ch.t_put('val')
+        c.async_get(ch,
+                    lambda x: prom.deliver([x, threading.current_thread()]),
+                    on_caller=False,
+                    executor=executor)
+        val, thread = prom.deref()
+        self.assertEqual(val, 'val')
+        self.assertTrue(thread.name.startswith('executor'))
 
 
 if __name__ == '__main__':

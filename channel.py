@@ -488,25 +488,41 @@ def t_alts(ports, *, priority=False, default=_UNDEFINED):
     return prom.deref() if ret is None else ret
 
 
-def async_put(port, val, f=lambda _: None, *, on_caller=True):
+def thread_call(f, executor=None):
+    ch = chan(1)
+
+    def wrapper():
+        ret = f()
+        if ret is not None:
+            ch.t_put(ret)
+        ch.close()
+
+    if executor is None:
+        threading.Thread(target=wrapper).start()
+    else:
+        executor.submit(wrapper)
+    return ch
+
+
+def async_put(port, val, f=lambda _: None, *, on_caller=True, executor=None):
     ret = port._put(FnHandler(f), val)
     if ret is None:
         return True
     elif on_caller:
         f(ret[0])
     else:
-        threading.Thread(target=f, args=[ret[0]]).start()
+        thread_call(lambda: f(ret[0]), executor)
     return ret[0]
 
 
-def async_get(port, f, *, on_caller=True):
+def async_get(port, f, *, on_caller=True, executor=None):
     ret = port._get(FnHandler(f))
     if ret is None:
-        return None
+        return
     elif on_caller:
         f(ret[0])
     else:
-        threading.Thread(target=f, args=[ret[0]]).start()
+        thread_call(lambda: f(ret[0]), executor)
 
 
 def to_iter(ch):
@@ -600,22 +616,6 @@ def call_soon(cb, loop, *, eager=False):
 
 def run_callback(cb, loop):
     call_soon(cb, loop, eager=True).t_get()
-
-
-def thread_call(f, executor=None):
-    ch = chan(1)
-
-    def wrapper():
-        ret = f()
-        if ret is not None:
-            ch.t_put(ret)
-        ch.close()
-
-    if executor is None:
-        threading.Thread(target=wrapper).start()
-    else:
-        executor.submit(wrapper)
-    return ch
 
 
 def timeout(msecs, *, loop=None):
