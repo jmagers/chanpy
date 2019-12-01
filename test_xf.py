@@ -73,6 +73,75 @@ class TestPartitionAll(unittest.TestCase):
                          [(1, 2), (5, 6), (9,)])
 
 
+class TestPartition(unittest.TestCase):
+    def test_no_pad(self):
+        xform = xf.partition(2)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4, 5])),
+                         [(1, 2), (3, 4)])
+
+    def test_no_pad_empty(self):
+        xform = xf.partition(2)
+        self.assertEqual(list(xf.xiter(xform, [])), [])
+
+    def test_n_fraction(self):
+        with self.assertRaises(ValueError):
+            xf.partition(1.5)
+
+    def test_n_zero(self):
+        with self.assertRaises(ValueError):
+            xf.partition(0)
+
+    def test_n_neg(self):
+        with self.assertRaises(ValueError):
+            xf.partition(-1)
+
+    def test_step_pos(self):
+        xform = xf.partition(2, 1)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(1, 2), (2, 3)])
+
+    def test_step_fraction(self):
+        with self.assertRaises(ValueError):
+            xf.partition(1, 1.5)
+
+    def test_step_zero(self):
+        with self.assertRaises(ValueError):
+            xf.partition(1, 0)
+
+    def test_step_neg(self):
+        with self.assertRaises(ValueError):
+            xf.partition(1, -1)
+
+    def test_pad_not_iter(self):
+        with self.assertRaises(TypeError):
+            xform = xf.partition(2, 2, 1)
+            list(xf.xiter(xform, [1, 2, 3]))
+
+    def test_pad_with_iterator(self):
+        xform = xf.partition(3, 3, iter(['pad', 'pad']))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])),
+                         [(1, 2, 3), (4, 'pad', 'pad')])
+
+    def test_pad_too_small(self):
+        xform = xf.partition(3, 3, ['pad'])
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])),
+                         [(1, 2, 3), (4, 'pad')])
+
+    def test_pad_too_large(self):
+        xform = xf.partition(3, 3, ['pad'] * 5)
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])),
+                         [(1, 2, 3), (4, 'pad', 'pad')])
+
+    def test_reduced_last_element(self):
+        xform = xf.comp(xf.partition(3, 3, ['pad', 'pad']), xf.take(2))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])),
+                         [(1, 2, 3), (4, 'pad', 'pad')])
+
+    def test_complete(self):
+        xform = xf.comp(xf.partition(2), xf.partition_all(10))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3, 4])),
+                         [((1, 2), (3, 4),)])
+
+
 class TestTake(unittest.TestCase):
     def test_take_pos(self):
         taken = list(xf.xiter(xf.take(2), [1, 2, 3, 4]))

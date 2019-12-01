@@ -1,3 +1,4 @@
+import itertools
 import functools
 import random
 from collections import deque
@@ -302,6 +303,20 @@ def partition_all(n, step=None):
 
         return multi_arity(rf, complete, step_f)
     return xform
+
+
+def partition(n, step=None, pad=None):
+    def pad_xform(rf):
+        def step_f(result, val):
+            if len(val) < n:
+                if pad is None:
+                    return reduced(result)
+                padding = tuple(itertools.islice(pad, n - len(val)))
+                return ensure_reduced(rf(result, val + tuple(padding)))
+            return rf(result, val)
+
+        return multi_arity(rf, rf, step_f)
+    return comp(partition_all(n, step), pad_xform)
 
 
 def partition_by(f):
