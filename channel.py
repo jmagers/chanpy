@@ -669,7 +669,8 @@ def pipe(from_ch, to_ch, *, close=True, loop=None):
         if close:
             to_ch.close()
 
-    return go(proc(), loop=loop)
+    go(proc(), loop=loop)
+    return to_ch
 
 
 def merge(chs, buf=None, *, loop=None):

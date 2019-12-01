@@ -1793,23 +1793,24 @@ class TestPipe(unittest.TestCase):
 
         asyncio.run(main())
 
-    def test_complete_ch(self):
+    def test_return_value_is_dest(self):
         async def main():
             src, dest = chan(), chan()
-            complete_ch = c.pipe(src, dest)
             src.close()
-            self.assertIsNone(await complete_ch.a_get())
+            self.assertIs(c.pipe(src, dest), dest)
 
         asyncio.run(main())
 
     def test_pipe_no_close_dest(self):
         async def main():
             src, dest = chan(), chan(1)
-            complete_ch = c.pipe(src, dest, close=False)
+            c.pipe(src, dest, close=False)
             src.close()
-            complete_ch.get()
+            await asyncio.sleep(0.1)
             dest.a_put('success')
             self.assertEqual(await dest.a_get(), 'success')
+
+        asyncio.run(main())
 
     def test_stop_consuming_when_dest_closes(self):
         async def main():
