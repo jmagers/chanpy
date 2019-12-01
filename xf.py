@@ -99,9 +99,8 @@ def itransduce(xform, rf, init, coll=_UNDEFINED):
 
 def xiter(xform, coll):
     def flush_buffer(buf):
-        b = unreduced(buf)
-        while len(b) != 0:
-            yield b.popleft()
+        while len(buf) > 0:
+            yield buf.popleft()
 
     rf = xform(multi_arity(None,
                            identity,
@@ -109,10 +108,11 @@ def xiter(xform, coll):
     buffer = deque()
     for x in coll:
         buffer = rf(buffer, x)
-        yield from flush_buffer(buffer)
+        yield from flush_buffer(unreduced(buffer))
         if is_reduced(buffer):
             break
-    yield from rf(unreduced(buffer))
+
+    yield from flush_buffer(rf(deque()))
 
 
 def map(f):
