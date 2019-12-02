@@ -1213,23 +1213,22 @@ class TestMultAsyncio(unittest.TestCase):
 
 class TestMultThread(unittest.TestCase):
     def test_tap(self):
-        def thread(loop, src, dest):
-            m = c.mult(src, loop=loop)
+        def thread(src, dest):
+            m = c.mult(src)
             m.tap(dest)
             src.t_put('success')
 
         async def main():
             src, dest = chan(), chan()
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread, args=(loop, src, dest)).start()
+            c.thread_call(lambda: thread(src, dest))
             self.assertEqual(await dest.a_get(), 'success')
             src.close()
 
         asyncio.run(main())
 
     def test_untap(self):
-        def thread(loop, src, dest1, dest2):
-            m = c.mult(src, loop=loop)
+        def thread(src, dest1, dest2):
+            m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
             src.t_put('item1')
@@ -1241,9 +1240,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread,
-                             args=(loop, src, dest1, dest2)).start()
+            c.thread_call(lambda: thread(src, dest1, dest2))
             await asyncio.sleep(0.1)
             self.assertIsNone(dest2.poll())
             src.close()
@@ -1251,8 +1248,8 @@ class TestMultThread(unittest.TestCase):
         asyncio.run(main())
 
     def test_untap_all(self):
-        def thread(loop, src, dest1, dest2):
-            m = c.mult(src, loop=loop)
+        def thread(src, dest1, dest2):
+            m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
             src.t_put('item')
@@ -1262,9 +1259,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread,
-                             args=(loop, src, dest1, dest2)).start()
+            c.thread_call(lambda: thread(src, dest1, dest2))
             await asyncio.sleep(0.1)
             self.assertIs(await src.a_put('dropMe'), True)
             await asyncio.sleep(0.1)
@@ -1274,23 +1269,22 @@ class TestMultThread(unittest.TestCase):
         asyncio.run(main())
 
     def test_untap_nonexistent_tap(self):
-        def thread(loop, src, complete):
-            m = c.mult(src, loop=loop)
+        def thread(src, complete):
+            m = c.mult(src)
             m.untap(chan())
             src.close()
             complete.close()
 
         async def main():
             src, complete = chan(), chan()
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread, args=(loop, src, complete)).start()
+            c.thread_call(lambda: thread(src, complete))
             self.assertIsNone(await complete.a_get())
 
         asyncio.run(main())
 
     def test_mult_blocks_until_all_taps_accept(self):
-        def thread(loop, src, dest1, dest2, complete):
-            m = c.mult(src, loop=loop)
+        def thread(src, dest1, dest2, complete):
+            m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
             src.t_put('item')
@@ -1303,25 +1297,21 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2, complete = chan(), chan(), chan(), chan()
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread,
-                             args=(loop, src, dest1, dest2, complete)).start()
+            c.thread_call(lambda: thread(src, dest1, dest2, complete))
             self.assertIsNone(await complete.a_get())
 
         asyncio.run(main())
 
     def test_only_correct_taps_close(self):
-        def thread(loop, src, close_dest, open_dest):
-            m = c.mult(src, loop=loop)
+        def thread(src, close_dest, open_dest):
+            m = c.mult(src)
             m.tap(close_dest)
             m.tap(open_dest, close=False)
             src.close()
 
         async def main():
             src, close_dest, open_dest = chan(), chan(1), chan(1)
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread,
-                             args=(loop, src, close_dest, open_dest)).start()
+            c.thread_call(lambda: thread(src, close_dest, open_dest))
             await asyncio.sleep(0.1)
             self.assertIs(await close_dest.a_put('closed'), False)
             self.assertIs(await open_dest.a_put('not closed'), True)
@@ -1329,17 +1319,15 @@ class TestMultThread(unittest.TestCase):
         asyncio.run(main())
 
     def test_tap_closes_when_added_after_mult_closes(self):
-        def thread(loop, src_ch, tap_ch):
-            m = c.mult(src_ch, loop=loop)
+        def thread(src_ch, tap_ch):
+            m = c.mult(src_ch)
             src_ch.close()
             time.sleep(0.1)
             m.tap(tap_ch)
 
         async def main():
             src_ch, tap_ch = chan(), chan()
-            loop = asyncio.get_running_loop()
-            threading.Thread(target=thread,
-                             args=(loop, src_ch, tap_ch)).start()
+            c.thread_call(lambda: thread(src_ch, tap_ch))
             self.assertIsNone(await tap_ch.a_get())
 
         asyncio.run(main())

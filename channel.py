@@ -491,10 +491,39 @@ def t_alts(ports, *, priority=False, default=_UNDEFINED):
     return prom.deref() if ret is None else ret
 
 
+_local_data = threading.local()
+
+
+def get_loop():
+    loop = getattr(_local_data, 'loop', None)
+    return asyncio.get_running_loop() if loop is None else loop
+
+
+def ensure_loop(loop):
+    return get_loop() if loop is None else loop
+
+
+def set_loop(loop):
+    _local_data.loop = loop
+
+
+def in_loop(loop):
+    try:
+        return asyncio.get_running_loop() is loop
+    except RuntimeError:
+        return False
+
+
 def thread_call(f, executor=None):
+    try:
+        loop = get_loop()
+    except RuntimeError:
+        loop = None
+
     ch = chan(1)
 
     def wrapper():
+        set_loop(loop)
         ret = f()
         if ret is not None:
             ch.t_put(ret)
@@ -552,21 +581,6 @@ async def a_tuple(ch):
     return tuple(await a_list(ch))
 
 
-def ensure_loop(loop):
-    if loop is None:
-        return asyncio.get_running_loop()
-    return loop
-
-
-def in_loop(loop):
-    try:
-        current_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return False
-
-    return current_loop is loop
-
-
 def go(coro, loop=None):
     loop = ensure_loop(loop)
     ch = chan(1)
@@ -621,13 +635,13 @@ def run_callback(cb, loop):
     call_soon(cb, loop, eager=True).t_get()
 
 
-def timeout(msecs, *, loop=None):
+def timeout(msecs):
     ch = chan()
-    ensure_loop(loop).call_later(msecs / 1000, ch.close)
+    get_loop().call_later(msecs / 1000, ch.close)
     return ch
 
 
-def reduce(f, init, ch, *, loop=None):
+def reduce(f, init, ch):
     async def proc():
         result = init
         async for val in ch:
@@ -636,35 +650,35 @@ def reduce(f, init, ch, *, loop=None):
                 break
         return xf.unreduced(result)
 
-    return go(proc(), loop)
+    return go(proc())
 
 
-def transduce(xform, f, init, ch, *, loop=None):
+def transduce(xform, f, init, ch):
     async def proc():
         xrf = xform(f)
-        ret = await reduce(xrf, init, ch, loop=loop).a_get()
+        ret = await reduce(xrf, init, ch).a_get()
         return xrf(ret)
 
     return go(proc())
 
 
-def onto_chan(ch, coll, *, close=True, loop=None):
+def onto_chan(ch, coll, *, close=True):
     async def proc():
         for x in coll:
             await ch.a_put(x)
         if close:
             ch.close()
 
-    return go(proc(), loop=loop)
+    return go(proc())
 
 
-def to_chan(coll, *, loop=None):
+def to_chan(coll):
     ch = chan()
-    onto_chan(ch, coll, loop=loop)
+    onto_chan(ch, coll)
     return ch
 
 
-def pipe(from_ch, to_ch, *, close=True, loop=None):
+def pipe(from_ch, to_ch, *, close=True):
     async def proc():
         async for val in from_ch:
             if not await to_ch.a_put(val):
@@ -672,11 +686,11 @@ def pipe(from_ch, to_ch, *, close=True, loop=None):
         if close:
             to_ch.close()
 
-    go(proc(), loop=loop)
+    go(proc())
     return to_ch
 
 
-def merge(chs, buf=None, *, loop=None):
+def merge(chs, buf=None):
     to_ch = chan(buf)
 
     async def proc():
@@ -689,17 +703,17 @@ def merge(chs, buf=None, *, loop=None):
                 await to_ch.a_put(val)
         to_ch.close()
 
-    go(proc(), loop)
+    go(proc())
     return to_ch
 
 
 class Mult:
-    def __init__(self, ch, *, loop=None):
-        self._loop = ensure_loop(loop)
+    def __init__(self, ch):
+        self._loop = get_loop()
         self._src_ch = ch
         self._consumers = {}
         self._is_closed = False
-        go(self._proc(), self._loop)
+        go(self._proc())
 
     @property
     def muxch(self):
@@ -732,18 +746,18 @@ class Mult:
                 consumer.close()
 
 
-def mult(ch, *, loop=None):
-    return Mult(ch, loop=loop)
+def mult(ch):
+    return Mult(ch)
 
 
 class Pub:
-    def __init__(self, ch, topic_fn, buf_fn=lambda _: None, *, loop=None):
-        self._loop = ensure_loop(loop)
+    def __init__(self, ch, topic_fn, buf_fn=lambda _: None):
+        self._loop = get_loop()
         self._src_ch = ch
         self._topic_fn = topic_fn
         self._buf_fn = buf_fn
         self._mults = {}
-        go(self._proc(), self._loop)
+        go(self._proc())
 
     def sub(self, topic, ch, *, close=True):
         def _sub():
@@ -784,18 +798,18 @@ class Pub:
         self._mults.clear()
 
 
-def pub(ch, topic_fn, buf_fn=lambda _: None, *, loop=None):
-    return Pub(ch, topic_fn, buf_fn, loop=loop)
+def pub(ch, topic_fn, buf_fn=lambda _: None):
+    return Pub(ch, topic_fn, buf_fn)
 
 
 class Mix:
-    def __init__(self, ch, *, loop=None):
-        self._loop = ensure_loop(loop)
+    def __init__(self, ch):
+        self._loop = get_loop()
         self._to_ch = ch
         self._state_ch = chan(SlidingBuffer(1))
         self._state_map = {}
         self._solo_mode = 'mute'
-        go(self._proc(), self._loop)
+        go(self._proc())
 
     @property
     def muxch(self):
@@ -888,11 +902,11 @@ class Mix:
                 break
 
 
-def mix(ch, *, loop=None):
-    return Mix(ch, loop=loop)
+def mix(ch):
+    return Mix(ch)
 
 
-def split(pred, ch, t_buf=None, f_buf=None, *, loop=None):
+def split(pred, ch, t_buf=None, f_buf=None):
     true_ch, false_ch = chan(t_buf), chan(f_buf)
 
     async def proc():
@@ -904,5 +918,5 @@ def split(pred, ch, t_buf=None, f_buf=None, *, loop=None):
         true_ch.close()
         false_ch.close()
 
-    go(proc(), loop)
+    go(proc())
     return true_ch, false_ch
