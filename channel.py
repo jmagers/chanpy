@@ -641,11 +641,11 @@ def timeout(msecs):
     return ch
 
 
-def reduce(f, init, ch):
+def _reduce(rf, init, ch):
     async def proc():
         result = init
         async for val in ch:
-            result = f(result, val)
+            result = rf(result, val)
             if xf.is_reduced(result):
                 break
         return xf.unreduced(result)
@@ -653,13 +653,25 @@ def reduce(f, init, ch):
     return go(proc())
 
 
-def transduce(xform, f, init, ch):
+def reduce(rf, init, ch=_UNDEFINED):
+    if ch is _UNDEFINED:
+        return _reduce(rf, rf(), init)
+    return _reduce(rf, init, ch)
+
+
+def _transduce(xform, rf, init, ch):
     async def proc():
-        xrf = xform(f)
+        xrf = xform(rf)
         ret = await reduce(xrf, init, ch).a_get()
         return xrf(ret)
 
     return go(proc())
+
+
+def transduce(xform, rf, init, ch=_UNDEFINED):
+    if ch is _UNDEFINED:
+        return _transduce(xform, rf, rf(), init)
+    return _transduce(xform, rf, init, ch)
 
 
 def onto_chan(ch, coll, *, close=True):

@@ -1834,6 +1834,40 @@ class TestReduce(unittest.TestCase):
 
         asyncio.run(main())
 
+    def test_no_init_non_empty(self):
+        async def main():
+            in_ch = c.to_chan(range(4))
+            result_ch = c.reduce(xf.multi_arity(lambda: 100,
+                                                xf.identity,
+                                                lambda x, y: x + y),
+                                 in_ch)
+            self.assertEqual(await result_ch.a_get(), 106)
+
+        asyncio.run(main())
+
+    def test_no_init_empty(self):
+        async def main():
+            in_ch = chan()
+            in_ch.close()
+            result_ch = c.reduce(xf.multi_arity(lambda: 100,
+                                                xf.identity,
+                                                lambda x, y: x + y),
+                                 in_ch)
+            self.assertEqual(await result_ch.a_get(), 100)
+
+        asyncio.run(main())
+
+    def test_no_init_no_zero_arity(self):
+        async def main():
+            in_ch = c.to_chan(range(4))
+            with self.assertRaises(TypeError):
+                c.reduce(xf.multi_arity(None,
+                                        xf.identity,
+                                        lambda x, y: x + y),
+                         in_ch)
+
+        asyncio.run(main())
+
     def test_reduced(self):
         async def main():
             in_ch = c.to_chan(range(4))
@@ -1877,6 +1911,43 @@ class TestTransduce(unittest.TestCase):
 
             result_ch = c.transduce(xf.take(2), rf, [], ch)
             self.assertEqual(await result_ch.a_get(), [1, 2])
+
+        asyncio.run(main())
+
+    def test_no_init_non_empty(self):
+        async def main():
+            in_ch = c.to_chan(range(4))
+            result_ch = c.transduce(xf.filter(lambda x: x % 2 == 0),
+                                    xf.multi_arity(lambda: 100,
+                                                   xf.identity,
+                                                   lambda x, y: x + y),
+                                    in_ch)
+            self.assertEqual(await result_ch.a_get(), 102)
+
+        asyncio.run(main())
+
+    def test_no_init_empty(self):
+        async def main():
+            in_ch = chan()
+            in_ch.close()
+            result_ch = c.transduce(xf.filter(lambda x: x % 2 == 0),
+                                    xf.multi_arity(lambda: 100,
+                                                   xf.identity,
+                                                   lambda x, y: x + y),
+                                    in_ch)
+            self.assertEqual(await result_ch.a_get(), 100)
+
+        asyncio.run(main())
+
+    def test_no_init_no_zero_arity(self):
+        async def main():
+            in_ch = c.to_chan(range(4))
+            with self.assertRaises(TypeError):
+                c.transduce(xf.filter(lambda x: x % 2 == 0),
+                            xf.multi_arity(None,
+                                           xf.identity,
+                                           lambda x, y: x + y),
+                            in_ch)
 
         asyncio.run(main())
 
