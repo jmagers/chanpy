@@ -4,6 +4,7 @@ import random
 import threading
 import xf
 from collections import deque
+from numbers import Number
 
 
 class _UNDEFINED:
@@ -11,10 +12,12 @@ class _UNDEFINED:
 
 
 class FixedBuffer:
-    def __init__(self, maxsize):
-        if not isinstance(maxsize, int) or maxsize <= 0:
-            raise ValueError('maxsize must be a positive int')
-        self._maxsize = maxsize
+    def __init__(self, n):
+        if not isinstance(n, Number):
+            raise TypeError('n must be a positive number')
+        if n <= 0:
+            raise ValueError('n must be a positive number')
+        self._maxsize = n
         self._deque = deque()
 
     def get(self):
@@ -61,10 +64,6 @@ class PromiseBuffer(UnblockingBufferMixin):
 
     def __len__(self):
         return 0 if self._value is None else 1
-
-
-def is_unblocking_buffer(buf):
-    return isinstance(buf, UnblockingBufferMixin)
 
 
 class Promise:
@@ -206,7 +205,9 @@ def nop_ex_handler(e):
 
 
 class Chan:
-    def __init__(self, buf=None, xform=xf.identity, ex_handler=nop_ex_handler):
+    def __init__(self, buf=None, xform=None, ex_handler=None):
+        xform = xf.identity if xform is None else xform
+        ex_handler = nop_ex_handler if ex_handler is None else ex_handler
         self._buf = buf
         self._takes = deque()
         self._puts = deque()
@@ -416,23 +417,39 @@ class Chan:
             yield value
 
 
-def is_chan(ch):
-    return isinstance(ch, Chan)
+def buffer(n):
+    return FixedBuffer(n)
 
 
-def chan(buf=None, xform=xf.identity, ex_handler=nop_ex_handler):
-    if buf is None:
-        if xform is not xf.identity:
+def dropping_buffer(n):
+    return DroppingBuffer(n)
+
+
+def sliding_buffer(n):
+    return SlidingBuffer(n)
+
+
+def is_unblocking_buffer(buf):
+    return isinstance(buf, UnblockingBufferMixin)
+
+
+def chan(buf_or_n=None, xform=None, ex_handler=None):
+    if buf_or_n is None:
+        if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
-        if ex_handler is not nop_ex_handler:
+        if ex_handler is not None:
             raise TypeError('unbuffered channels cannot have an ex_handler')
         return Chan()
-    new_buf = FixedBuffer(buf) if isinstance(buf, int) else buf
-    return Chan(new_buf, xform, ex_handler)
+    buf = buffer(buf_or_n) if isinstance(buf_or_n, Number) else buf_or_n
+    return Chan(buf, xform, ex_handler)
 
 
 def promise_chan(xform=xf.identity):
     return chan(PromiseBuffer(), xform)
+
+
+def is_chan(ch):
+    return isinstance(ch, Chan)
 
 
 def _alts(flag, deliver_fn, ports, priority, default):

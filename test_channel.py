@@ -335,7 +335,7 @@ class TestBufferedBlockingChan(unittest.TestCase,
                                AbstractTestBufferedBlocking):
     @staticmethod
     def chan(n):
-        return c.Chan(c.FixedBuffer(n))
+        return c.Chan(c.buffer(n))
 
 
 class AbstractTestXform:
@@ -431,7 +431,7 @@ class AbstractTestXform:
 class TestXformBufferedChan(unittest.TestCase, AbstractTestXform):
     @staticmethod
     def chan(n, xform, ex_handler=c.nop_ex_handler):
-        return c.Chan(c.FixedBuffer(n), xform, ex_handler)
+        return c.Chan(c.buffer(n), xform, ex_handler)
 
 
 class AbstractTestBufferedNonblocking:
@@ -490,11 +490,11 @@ class TestBufferedNonBlockingChan(unittest.TestCase,
                                   AbstractTestBufferedNonblocking):
     @staticmethod
     def chan(n):
-        return c.Chan(c.FixedBuffer(n))
+        return c.Chan(c.buffer(n))
 
 
 class TestChan(unittest.TestCase):
-    def test_unsuccessful_nonpositive_buffer(self):
+    def test_ValueError_nonpositive_buffer(self):
         with self.assertRaises(ValueError):
             chan(0)
 
@@ -1045,7 +1045,7 @@ class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
 class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
     def chan(n=1, xform=xf.identity):
-        return c.Chan(c.FixedBuffer(n), xform)
+        return c.Chan(c.buffer(n), xform)
 
 
 class TestAltsThreads(unittest.TestCase):
@@ -1062,13 +1062,13 @@ class TestAltsThreads(unittest.TestCase):
 
 class TestDroppingBuffer(unittest.TestCase):
     def test_put_does_not_block(self):
-        ch = chan(c.DroppingBuffer(1))
+        ch = chan(c.dropping_buffer(1))
         ch.t_put('keep')
         ch.t_put('drop')
         self.assertIs(ch.t_put('drop'), True)
 
     def test_buffer_keeps_oldest_n_elements(self):
-        ch = chan(c.DroppingBuffer(2))
+        ch = chan(c.dropping_buffer(2))
         ch.t_put('keep1')
         ch.t_put('keep2')
         ch.t_put('drop')
@@ -1076,24 +1076,24 @@ class TestDroppingBuffer(unittest.TestCase):
         self.assertEqual(c.t_list(ch), ['keep1', 'keep2'])
 
     def test_buffer_does_not_overfill_with_xform(self):
-        ch = chan(c.DroppingBuffer(2), xf.cat)
+        ch = chan(c.dropping_buffer(2), xf.cat)
         ch.t_put([1, 2, 3, 4])
         ch.close()
         self.assertEqual(c.t_list(ch), [1, 2])
 
     def test_is_unblocking_buffer(self):
-        self.assertIs(c.is_unblocking_buffer(c.DroppingBuffer(1)), True)
+        self.assertIs(c.is_unblocking_buffer(c.dropping_buffer(1)), True)
 
 
 class TestSlidingBuffer(unittest.TestCase):
     def test_put_does_not_block(self):
-        ch = chan(c.SlidingBuffer(1))
+        ch = chan(c.sliding_buffer(1))
         ch.t_put('drop')
         ch.t_put('drop')
         self.assertIs(ch.t_put('keep'), True)
 
     def test_buffer_keeps_newest_n_elements(self):
-        ch = chan(c.SlidingBuffer(2))
+        ch = chan(c.sliding_buffer(2))
         ch.t_put('drop')
         ch.t_put('keep1')
         ch.t_put('keep2')
@@ -1101,18 +1101,18 @@ class TestSlidingBuffer(unittest.TestCase):
         self.assertEqual(c.t_list(ch), ['keep1', 'keep2'])
 
     def test_buffer_does_not_overfill_with_xform(self):
-        ch = chan(c.SlidingBuffer(2), xf.cat)
+        ch = chan(c.sliding_buffer(2), xf.cat)
         ch.t_put([1, 2, 3, 4])
         ch.close()
         self.assertEqual(c.t_list(ch), [3, 4])
 
     def test_is_unblocking_buffer(self):
-        self.assertIs(c.is_unblocking_buffer(c.SlidingBuffer(1)), True)
+        self.assertIs(c.is_unblocking_buffer(c.sliding_buffer(1)), True)
 
 
 class TestPromiseBuffer(unittest.TestCase):
     def test_is_unblocking_buffer(self):
-        self.assertIs(c.is_unblocking_buffer(c.SlidingBuffer(1)), True)
+        self.assertIs(c.is_unblocking_buffer(c.PromiseBuffer()), True)
 
 
 class TestMultAsyncio(unittest.TestCase):
