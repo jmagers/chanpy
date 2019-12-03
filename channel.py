@@ -648,10 +648,6 @@ def call_soon(cb, loop, *, eager=False):
     return ch
 
 
-def run_callback(cb, loop):
-    call_soon(cb, loop, eager=True).t_get()
-
-
 def timeout(msecs):
     ch = chan()
     get_loop().call_later(msecs / 1000, ch.close)
@@ -738,41 +734,45 @@ def merge(chs, buf=None):
 
 class Mult:
     def __init__(self, ch):
-        self._loop = get_loop()
-        self._src_ch = ch
-        self._consumers = {}
+        self._lock = threading.Lock()
+        self._from_ch = ch
+        self._taps = {}  # ch->close
         self._is_closed = False
         go(self._proc())
 
     @property
     def muxch(self):
-        return self._src_ch
+        return self._from_ch
 
     def tap(self, ch, *, close=True):
-        def _tap():
+        with self._lock:
             if self._is_closed and close:
                 ch.close()
-            self._consumers[ch] = close
-        run_callback(_tap, self._loop)
+            self._taps[ch] = close
 
     def untap(self, ch):
-        run_callback(lambda: self._consumers.pop(ch, None), self._loop)
+        with self._lock:
+            self._taps.pop(ch, None)
 
     def untap_all(self):
-        run_callback(self._consumers.clear, self._loop)
+        with self._lock:
+            self._taps.clear()
 
     async def _proc(self):
-        async for item in self._src_ch:
-            chs = tuple(self._consumers)
+        async for item in self._from_ch:
+            with self._lock:
+                chs = tuple(self._taps)
             results = await asyncio.gather(*(ch.a_put(item) for ch in chs))
-            for ch, is_open in zip(chs, results):
-                if not is_open:
-                    self._consumers.pop(ch, None)
+            with self._lock:
+                for ch, is_open in zip(chs, results):
+                    if not is_open:
+                        self._taps.pop(ch, None)
 
-        self._is_closed = True
-        for consumer, close in self._consumers.items():
-            if close:
-                consumer.close()
+        with self._lock:
+            self._is_closed = True
+            for ch, close in self._taps.items():
+                if close:
+                    ch.close()
 
 
 def mult(ch):
@@ -781,32 +781,30 @@ def mult(ch):
 
 class Pub:
     def __init__(self, ch, topic_fn, buf_fn=lambda _: None):
-        self._loop = get_loop()
-        self._src_ch = ch
+        self._lock = threading.Lock()
+        self._from_ch = ch
         self._topic_fn = topic_fn
         self._buf_fn = buf_fn
-        self._mults = {}
+        self._mults = {}  # topic->mult
         go(self._proc())
 
     def sub(self, topic, ch, *, close=True):
-        def _sub():
+        with self._lock:
             if topic not in self._mults:
                 self._mults[topic] = mult(chan(self._buf_fn(topic)))
             self._mults[topic].tap(ch, close=close)
-        run_callback(_sub, self._loop)
 
     def unsub(self, topic, ch):
-        def _unsub():
+        with self._lock:
             m = self._mults.get(topic, None)
             if m is not None:
                 m.untap(ch)
-                if len(m._consumers) == 0:
+                if len(m._taps) == 0:
                     m.muxch.close()
                     self._mults.pop(topic)
-        run_callback(_unsub, self._loop)
 
     def unsub_all(self, topic=_UNDEFINED):
-        def _unsub_all():
+        with self._lock:
             topics = tuple(self._mults) if topic is _UNDEFINED else [topic]
             for t in topics:
                 m = self._mults.get(t, None)
@@ -814,17 +812,18 @@ class Pub:
                     m.untap_all()
                     m.muxch.close()
                     self._mults.pop(t)
-        run_callback(_unsub_all, self._loop)
 
     async def _proc(self):
-        async for item in self._src_ch:
-            m = self._mults.get(self._topic_fn(item), None)
+        async for item in self._from_ch:
+            with self._lock:
+                m = self._mults.get(self._topic_fn(item), None)
             if m is not None:
                 await m.muxch.a_put(item)
 
-        for m in self._mults.values():
-            m.muxch.close()
-        self._mults.clear()
+        with self._lock:
+            for m in self._mults.values():
+                m.muxch.close()
+            self._mults.clear()
 
 
 def pub(ch, topic_fn, buf_fn=lambda _: None):
@@ -833,10 +832,10 @@ def pub(ch, topic_fn, buf_fn=lambda _: None):
 
 class Mix:
     def __init__(self, ch):
-        self._loop = get_loop()
+        self._lock = threading.Lock()
         self._to_ch = ch
-        self._state_ch = chan(SlidingBuffer(1))
-        self._state_map = {}
+        self._state_ch = chan(sliding_buffer(1))
+        self._state_map = {}  # ch->state
         self._solo_mode = 'mute'
         go(self._proc())
 
@@ -856,7 +855,7 @@ class Mix:
                 raise ValueError(f'state contains non-boolean values: '
                                  f'{state}')
 
-            def _toggle():
+            with self._lock:
                 for ch, new_state in state_map.items():
                     original_state = self._state_map.get(ch, {'solo': False,
                                                               'pause': False,
@@ -864,32 +863,26 @@ class Mix:
                     self._state_map[ch] = {**original_state, **new_state}
                 self._sync_state()
 
-            run_callback(_toggle, self._loop)
-
     def admix(self, ch):
         self.toggle({ch: {}})
 
     def unmix(self, ch):
-        def _unmix():
+        with self._lock:
             self._state_map.pop(ch, None)
             self._sync_state()
-        run_callback(_unmix, self._loop)
 
     def unmix_all(self):
-        def _unmix_all():
+        with self._lock:
             self._state_map.clear()
             self._sync_state()
-        run_callback(_unmix_all, self._loop)
 
     def solo_mode(self, mode):
         if mode not in ['pause', 'mute']:
             raise ValueError(f'solo-mode is invalid: {mode}')
 
-        def _solo_mode():
+        with self._lock:
             self._solo_mode = mode
             self._sync_state()
-
-        run_callback(_solo_mode, self._loop)
 
     def _sync_state(self):
         soloed_chs, muted_chs, live_chs = set(), set(), set()
@@ -922,7 +915,8 @@ class Mix:
             if ch is self._state_ch:
                 live_chs, muted_chs = val['live_chs'], val['muted_chs']
             elif val is None:
-                self._state_map.pop(ch, None)
+                with self._lock:
+                    self._state_map.pop(ch, None)
                 live_chs.discard(ch)
                 muted_chs.discard(ch)
             elif ch in muted_chs:
