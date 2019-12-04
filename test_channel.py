@@ -11,6 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 class TestThreadCall(unittest.TestCase):
+    def setUp(self):
+        c.set_loop(asyncio.new_event_loop())
+
+    def tearDown(self):
+        c.get_loop().close()
+        c.set_loop(None)
+
     def test_non_none_return_value(self):
         def thread():
             return 'success'
@@ -2002,6 +2009,13 @@ class TestSplit(unittest.TestCase):
 
 
 class TestAsyncPut(unittest.TestCase):
+    def setUp(self):
+        c.set_loop(asyncio.new_event_loop())
+
+    def tearDown(self):
+        c.get_loop().close()
+        c.set_loop(None)
+
     def test_return_true_if_buffer_not_full(self):
         self.assertIs(c.async_put(chan(1), 'val'), True)
 
@@ -2053,6 +2067,13 @@ class TestAsyncPut(unittest.TestCase):
 
 
 class TestAsyncGet(unittest.TestCase):
+    def setUp(self):
+        c.set_loop(asyncio.new_event_loop())
+
+    def tearDown(self):
+        c.get_loop().close()
+        c.set_loop(None)
+
     def test_return_none_if_buffer_not_empty(self):
         ch = chan(1)
         ch.t_put('val')

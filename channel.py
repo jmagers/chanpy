@@ -531,20 +531,26 @@ def in_loop(loop):
         return False
 
 
-def thread_call(f, executor=None):
+@contextlib.contextmanager
+def loop_manager(loop):
+    prev_loop = getattr(_local_data, 'loop', None)
+    set_loop(loop)
     try:
-        loop = get_loop()
-    except RuntimeError:
-        loop = None
+        yield
+    finally:
+        set_loop(prev_loop)
 
+
+def thread_call(f, executor=None):
+    loop = get_loop()
     ch = chan(1)
 
     def wrapper():
-        set_loop(loop)
-        ret = f()
-        if ret is not None:
-            ch.t_put(ret)
-        ch.close()
+        with loop_manager(loop):
+            ret = f()
+            if ret is not None:
+                ch.t_put(ret)
+            ch.close()
 
     if executor is None:
         threading.Thread(target=wrapper).start()
@@ -625,7 +631,7 @@ def go(coro, loop=None):
     return ch
 
 
-def call_soon(cb, loop, *, eager=False):
+def call_soon(cb, loop=None, *, eager=False):
     """Schedules cb to run in event loop.
     Returns a ch that contains the return value."""
     loop = ensure_loop(loop)
