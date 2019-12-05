@@ -42,23 +42,22 @@ class Chan:
         self._xform_is_completed = False
         self._lock = threading.Lock()
 
-        def ex_handler_xform(rf):
-            def wrapper(*args, **kwargs):
-                try:
-                    return rf(*args, **kwargs)
-                except Exception as e:
-                    val = ex_handler(e)
-                    if val is not None:
-                        self._buf.put(val)
-            return wrapper
-
-        def step(_, val):
+        @xform
+        @xf.completing
+        def xrf(_, val):
             if val is None:
                 raise TypeError('xform cannot produce None')
             self._buf.put(val)
 
-        rf = xf.multi_arity(lambda: None, lambda _: None, step)
-        self._buf_rf = ex_handler_xform(xform(rf))
+        def ex_handler_rf(*args):
+            try:
+                return xrf(*args)
+            except Exception as e:
+                val = ex_handler(e)
+                if val is not None:
+                    self._buf.put(val)
+
+        self._buf_rf = ex_handler_rf
 
     def a_put(self, val, *, wait=True):
         flag = hd.create_flag()
