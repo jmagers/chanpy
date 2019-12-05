@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import unittest
-import xf
+from chanpy import xf
 
 
 append_rf = xf.multi_arity(list, xf.identity, lambda x, y: x.append(y) or x)
