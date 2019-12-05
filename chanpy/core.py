@@ -457,13 +457,13 @@ class Mix:
                 raise ValueError(f'state contains non-boolean values: '
                                  f'{state}')
 
-            with self._lock:
-                for ch, new_state in state_map.items():
-                    original_state = self._state_map.get(ch, {'solo': False,
-                                                              'pause': False,
-                                                              'mute': False})
-                    self._state_map[ch] = {**original_state, **new_state}
-                self._sync_state()
+        with self._lock:
+            for ch, new_state in state_map.items():
+                original_state = self._state_map.get(ch, {'solo': False,
+                                                          'pause': False,
+                                                          'mute': False})
+                self._state_map[ch] = {**original_state, **new_state}
+            self._sync_state()
 
     def admix(self, ch):
         self.toggle({ch: {}})
