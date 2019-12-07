@@ -13,20 +13,7 @@ def identity(x):
 
 
 def comp(*funcs):
-    ordered_funcs = reversed(funcs)
-    try:
-        first_func = next(ordered_funcs)
-    except StopIteration:
-        return identity
-    ordered_funcs = tuple(ordered_funcs)
-
-    def wrapper(*args, **kwargs):
-        result = first_func(*args, **kwargs)
-        for f in ordered_funcs:
-            result = f(result)
-        return result
-
-    return wrapper
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), funcs, identity)
 
 
 def multi_arity(*funcs):
