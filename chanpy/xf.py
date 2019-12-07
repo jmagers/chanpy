@@ -84,6 +84,19 @@ def itransduce(xform, rf, init, coll=_UNDEFINED):
     return _itransduce(xform, rf, init, coll)
 
 
+def append(result=_UNDEFINED, val=_UNDEFINED):
+    if result is _UNDEFINED:
+        return []
+    if val is _UNDEFINED:
+        return result
+    result.append(val)
+    return result
+
+
+def into(appendable, xform, coll):
+    return itransduce(xform, append, appendable, coll)
+
+
 def xiter(xform, coll):
     buffer = deque()
 
@@ -92,16 +105,14 @@ def xiter(xform, coll):
         while len(buf) > 0:
             yield buf.popleft()
 
-    rf = xform(multi_arity(None,
-                           identity,
-                           lambda result, val: result.append(val) or result))
+    xrf = xform(append)
     for x in coll:
-        ret = rf(buffer, x)
+        ret = xrf(buffer, x)
         yield from flush_buffer(unreduced(ret))
         if is_reduced(ret):
             break
 
-    yield from flush_buffer(rf(buffer))
+    yield from flush_buffer(xrf(buffer))
 
 
 def map(f):

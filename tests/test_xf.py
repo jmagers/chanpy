@@ -4,7 +4,6 @@ import unittest
 from chanpy import xf
 
 
-append_rf = xf.multi_arity(list, xf.identity, lambda x, y: x.append(y) or x)
 sum_rf = xf.multi_arity(lambda: 0, xf.identity, lambda x, y: x + y)
 
 
@@ -846,8 +845,16 @@ class TestItransduce(unittest.TestCase):
         self.assertEqual(result, 6)
 
     def test_complete(self):
-        result = xf.itransduce(xf.partition_all(2), append_rf, [], [1, 2, 3])
+        result = xf.itransduce(xf.partition_all(2), xf.append, [1, 2, 3])
         self.assertEqual(result, [(1, 2), (3,)])
+
+
+class TestInto(unittest.TestCase):
+    def test_into(self):
+        appendable = [1, 2]
+        xform = xf.map(lambda x: x + 1)
+        self.assertIs(xf.into(appendable, xform, [3, 4]), appendable)
+        self.assertEqual(appendable, [1, 2, 4, 5])
 
 
 if __name__ == '__main__':
