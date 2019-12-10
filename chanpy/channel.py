@@ -60,7 +60,7 @@ class Chan:
 
         self._buf_rf = ex_handler_rf
 
-    def a_put(self, val, *, wait=True):
+    def put(self, val, *, wait=True):
         flag = hd.create_flag()
         future = hd.FlagFuture(flag)
         handler = hd.FlagHandler(flag, hd.future_deliver_fn(future), wait)
@@ -69,7 +69,7 @@ class Chan:
             asyncio.Future.set_result(future, ret[0])
         return future
 
-    def a_get(self, *, wait=True):
+    def get(self, *, wait=True):
         flag = hd.create_flag()
         future = hd.FlagFuture(flag)
         handler = hd.FlagHandler(flag, hd.future_deliver_fn(future), wait)
@@ -78,14 +78,14 @@ class Chan:
             asyncio.Future.set_result(future, ret[0])
         return future
 
-    def t_put(self, val, *, wait=True):
+    def b_put(self, val, *, wait=True):
         prom = hd.Promise()
         ret = self._p_put(hd.FnHandler(prom.deliver, wait), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
-    def t_get(self, *, wait=True):
+    def b_get(self, *, wait=True):
         prom = hd.Promise()
         ret = self._p_get(hd.FnHandler(prom.deliver, wait))
         if ret is not None:
@@ -122,10 +122,10 @@ class Chan:
         f(ret[0])
 
     def offer(self, val):
-        return self.t_put(val, wait=False)
+        return self.b_put(val, wait=False)
 
     def poll(self):
-        return self.t_get(wait=False)
+        return self.b_get(wait=False)
 
     def close(self):
         with self._lock:
@@ -267,7 +267,7 @@ class Chan:
 
     async def __aiter__(self):
         while True:
-            value = await self.a_get()
+            value = await self.get()
             if value is None:
                 break
             yield value

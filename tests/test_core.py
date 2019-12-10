@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 async def a_list(ch):
-    return await c.to_list(ch).a_get()
+    return await c.to_list(ch).get()
 
 
 class TestThreadCall(unittest.TestCase):
@@ -26,15 +26,15 @@ class TestThreadCall(unittest.TestCase):
             return 'success'
 
         ch = c.thread_call(thread)
-        self.assertEqual(ch.t_get(), 'success')
-        self.assertIsNone(ch.t_get())
+        self.assertEqual(ch.b_get(), 'success')
+        self.assertIsNone(ch.b_get())
 
     def test_none_return_value(self):
         def thread():
             return None
 
         ch = c.thread_call(thread)
-        self.assertIsNone(ch.t_get())
+        self.assertIsNone(ch.b_get())
 
     def test_executor(self):
         def thread():
@@ -43,7 +43,7 @@ class TestThreadCall(unittest.TestCase):
 
         executor = ThreadPoolExecutor(max_workers=1,
                                       thread_name_prefix='executor')
-        thread_name = c.thread_call(thread, executor).t_get()
+        thread_name = c.thread_call(thread, executor).b_get()
         self.assertTrue(thread_name.startswith('executor'))
 
 
@@ -53,8 +53,8 @@ class TestMultAsyncio(unittest.TestCase):
             src, dest = chan(), chan()
             m = c.mult(src)
             m.tap(dest)
-            await src.a_put('success')
-            self.assertEqual(await dest.a_get(), 'success')
+            await src.put('success')
+            self.assertEqual(await dest.get(), 'success')
             src.close()
 
         asyncio.run(main())
@@ -65,12 +65,12 @@ class TestMultAsyncio(unittest.TestCase):
             m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
-            await src.a_put('item1')
-            await dest1.a_get()
-            await dest2.a_get()
+            await src.put('item1')
+            await dest1.get()
+            await dest2.get()
             m.untap(dest2)
-            await src.a_put('item2')
-            await dest1.a_get()
+            await src.put('item2')
+            await dest1.get()
             await asyncio.sleep(0.1)
             self.assertIsNone(dest2.poll())
             src.close()
@@ -83,11 +83,11 @@ class TestMultAsyncio(unittest.TestCase):
             m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
-            await src.a_put('item')
-            await dest1.a_get()
-            await dest2.a_get()
+            await src.put('item')
+            await dest1.get()
+            await dest2.get()
             m.untap_all()
-            self.assertIs(await src.a_put('dropMe'), True)
+            self.assertIs(await src.put('dropMe'), True)
             await asyncio.sleep(0.1)
             self.assertIsNone(dest1.poll())
             self.assertIsNone(dest2.poll())
@@ -109,11 +109,11 @@ class TestMultAsyncio(unittest.TestCase):
             m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
-            await src.a_put('item')
-            await dest1.a_get()
+            await src.put('item')
+            await dest1.get()
             await asyncio.sleep(0.1)
             self.assertIs(src.offer('failure'), False)
-            await dest2.a_get()
+            await dest2.get()
             src.close()
 
         asyncio.run(main())
@@ -126,8 +126,8 @@ class TestMultAsyncio(unittest.TestCase):
             m.tap(no_close_dest, close=False)
             src.close()
             await asyncio.sleep(0.1)
-            self.assertIs(await close_dest.a_put('closed'), False)
-            self.assertIs(await no_close_dest.a_put('not closed'), True)
+            self.assertIs(await close_dest.put('closed'), False)
+            self.assertIs(await no_close_dest.put('not closed'), True)
 
         asyncio.run(main())
 
@@ -138,7 +138,7 @@ class TestMultAsyncio(unittest.TestCase):
             src_ch.close()
             await asyncio.sleep(0.1)
             m.tap(tap_ch)
-            self.assertIsNone(await tap_ch.a_get())
+            self.assertIsNone(await tap_ch.get())
 
         asyncio.run(main())
 
@@ -148,12 +148,12 @@ class TestMultThread(unittest.TestCase):
         def thread(src, dest):
             m = c.mult(src)
             m.tap(dest)
-            src.t_put('success')
+            src.b_put('success')
 
         async def main():
             src, dest = chan(), chan()
             c.thread_call(lambda: thread(src, dest))
-            self.assertEqual(await dest.a_get(), 'success')
+            self.assertEqual(await dest.get(), 'success')
             src.close()
 
         asyncio.run(main())
@@ -163,12 +163,12 @@ class TestMultThread(unittest.TestCase):
             m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
-            src.t_put('item1')
-            dest1.t_get()
-            dest2.t_get()
+            src.b_put('item1')
+            dest1.b_get()
+            dest2.b_get()
             m.untap(dest2)
-            src.t_put('item2')
-            dest1.t_get()
+            src.b_put('item2')
+            dest1.b_get()
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
@@ -184,16 +184,16 @@ class TestMultThread(unittest.TestCase):
             m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
-            src.t_put('item')
-            dest1.t_get()
-            dest2.t_get()
+            src.b_put('item')
+            dest1.b_get()
+            dest2.b_get()
             m.untap_all()
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
             c.thread_call(lambda: thread(src, dest1, dest2))
             await asyncio.sleep(0.1)
-            self.assertIs(await src.a_put('dropMe'), True)
+            self.assertIs(await src.put('dropMe'), True)
             await asyncio.sleep(0.1)
             self.assertIsNone(dest1.poll())
             self.assertIsNone(dest2.poll())
@@ -210,7 +210,7 @@ class TestMultThread(unittest.TestCase):
         async def main():
             src, complete = chan(), chan()
             c.thread_call(lambda: thread(src, complete))
-            self.assertIsNone(await complete.a_get())
+            self.assertIsNone(await complete.get())
 
         asyncio.run(main())
 
@@ -219,18 +219,18 @@ class TestMultThread(unittest.TestCase):
             m = c.mult(src)
             m.tap(dest1)
             m.tap(dest2)
-            src.t_put('item')
-            dest1.t_get()
+            src.b_put('item')
+            dest1.b_get()
             time.sleep(0.1)
             self.assertIs(src.offer('failure'), False)
-            dest2.t_get()
+            dest2.b_get()
             src.close()
             complete.close()
 
         async def main():
             src, dest1, dest2, complete = chan(), chan(), chan(), chan()
             c.thread_call(lambda: thread(src, dest1, dest2, complete))
-            self.assertIsNone(await complete.a_get())
+            self.assertIsNone(await complete.get())
 
         asyncio.run(main())
 
@@ -245,8 +245,8 @@ class TestMultThread(unittest.TestCase):
             src, close_dest, open_dest = chan(), chan(1), chan(1)
             c.thread_call(lambda: thread(src, close_dest, open_dest))
             await asyncio.sleep(0.1)
-            self.assertIs(await close_dest.a_put('closed'), False)
-            self.assertIs(await open_dest.a_put('not closed'), True)
+            self.assertIs(await close_dest.put('closed'), False)
+            self.assertIs(await open_dest.put('not closed'), True)
 
         asyncio.run(main())
 
@@ -260,7 +260,7 @@ class TestMultThread(unittest.TestCase):
         async def main():
             src_ch, tap_ch = chan(), chan()
             c.thread_call(lambda: thread(src_ch, tap_ch))
-            self.assertIsNone(await tap_ch.a_get())
+            self.assertIsNone(await tap_ch.get())
 
         asyncio.run(main())
 
@@ -276,19 +276,19 @@ class TestPubAsyncio(unittest.TestCase):
             p.sub('b', b1_ch)
             p.sub('b', b2_ch)
 
-            await from_ch.a_put('apple')
-            self.assertEqual(await a1_ch.a_get(), 'apple')
-            self.assertEqual(await a2_ch.a_get(), 'apple')
-            await from_ch.a_put('bat')
-            self.assertEqual(await b1_ch.a_get(), 'bat')
-            self.assertEqual(await b2_ch.a_get(), 'bat')
+            await from_ch.put('apple')
+            self.assertEqual(await a1_ch.get(), 'apple')
+            self.assertEqual(await a2_ch.get(), 'apple')
+            await from_ch.put('bat')
+            self.assertEqual(await b1_ch.get(), 'bat')
+            self.assertEqual(await b2_ch.get(), 'bat')
 
-            await from_ch.a_put('ant')
-            self.assertEqual(await a1_ch.a_get(), 'ant')
-            self.assertEqual(await a2_ch.a_get(), 'ant')
-            await from_ch.a_put('bear')
-            self.assertEqual(await b1_ch.a_get(), 'bear')
-            self.assertEqual(await b2_ch.a_get(), 'bear')
+            await from_ch.put('ant')
+            self.assertEqual(await a1_ch.get(), 'ant')
+            self.assertEqual(await a2_ch.get(), 'ant')
+            await from_ch.put('bear')
+            self.assertEqual(await b1_ch.get(), 'bear')
+            self.assertEqual(await b2_ch.get(), 'bear')
 
         asyncio.run(main())
 
@@ -302,16 +302,16 @@ class TestPubAsyncio(unittest.TestCase):
             p.sub('b', b_ch)
 
             p.unsub('a', a2_ch)
-            await from_ch.a_put('apple')
-            self.assertEqual(await a1_ch.a_get(), 'apple')
-            await from_ch.a_put('bat')
-            self.assertEqual(await b_ch.a_get(), 'bat')
+            await from_ch.put('apple')
+            self.assertEqual(await a1_ch.get(), 'apple')
+            await from_ch.put('bat')
+            self.assertEqual(await b_ch.get(), 'bat')
             await asyncio.sleep(0.1)
             self.assertIsNone(a2_ch.poll())
 
             p.sub('a', a2_ch)
-            from_ch.a_put('air')
-            self.assertEqual(await a2_ch.a_get(), 'air')
+            from_ch.put('air')
+            self.assertEqual(await a2_ch.get(), 'air')
 
         asyncio.run(main())
 
@@ -322,8 +322,8 @@ class TestPubAsyncio(unittest.TestCase):
             p.sub('a', to_ch)
 
             p.unsub('b', to_ch)
-            await from_ch.a_put('a')
-            self.assertEqual(await to_ch.a_get(), 'a')
+            await from_ch.put('a')
+            self.assertEqual(await to_ch.get(), 'a')
 
         asyncio.run(main())
 
@@ -334,8 +334,8 @@ class TestPubAsyncio(unittest.TestCase):
             p.sub('a', to_ch)
 
             p.unsub('b', chan())
-            await from_ch.a_put('a')
-            self.assertEqual(await to_ch.a_get(), 'a')
+            await from_ch.put('a')
+            self.assertEqual(await to_ch.get(), 'a')
 
         asyncio.run(main())
 
@@ -347,16 +347,16 @@ class TestPubAsyncio(unittest.TestCase):
             p.sub('b', b_ch)
 
             p.unsub_all()
-            await from_ch.a_put('apple')
-            await from_ch.a_put('bat')
+            await from_ch.put('apple')
+            await from_ch.put('bat')
             await asyncio.sleep(0.1)
             self.assertIsNone(from_ch.poll())
             self.assertIsNone(a_ch.poll())
             self.assertIsNone(b_ch.poll())
 
             p.sub('a', a_ch)
-            await from_ch.a_put('air')
-            self.assertEqual(await a_ch.a_get(), 'air')
+            await from_ch.put('air')
+            self.assertEqual(await a_ch.get(), 'air')
 
         asyncio.run(main())
 
@@ -370,8 +370,8 @@ class TestPubAsyncio(unittest.TestCase):
             p.sub('b', b_ch)
 
             p.unsub_all('a')
-            await from_ch.a_put('apple')
-            await from_ch.a_put('bat')
+            await from_ch.put('apple')
+            await from_ch.put('bat')
             await asyncio.sleep(0.1)
             self.assertIsNone(a1_ch.poll())
             self.assertIsNone(a2_ch.poll())
@@ -379,8 +379,8 @@ class TestPubAsyncio(unittest.TestCase):
             self.assertIsNone(from_ch.poll())
 
             p.sub('a', a1_ch)
-            await from_ch.a_put('air')
-            self.assertEqual(await a1_ch.a_get(), 'air')
+            await from_ch.put('air')
+            self.assertEqual(await a1_ch.get(), 'air')
 
         asyncio.run(main())
 
@@ -393,8 +393,8 @@ class TestPubAsyncio(unittest.TestCase):
 
             from_ch.close()
             await asyncio.sleep(0.1)
-            self.assertIs(await close_ch.a_put('fail'), False)
-            self.assertIs(await open_ch.a_put('success'), True)
+            self.assertIs(await close_ch.put('fail'), False)
+            self.assertIs(await open_ch.put('success'), True)
 
         asyncio.run(main())
 
@@ -407,25 +407,25 @@ class TestPubAsyncio(unittest.TestCase):
 
             p.sub('a', a_ch)
             p.sub('b', b_ch)
-            await from_ch.a_put('a1')
-            await from_ch.a_put('a2')
+            await from_ch.put('a1')
+            await from_ch.put('a2')
             await asyncio.sleep(0.1)
             self.assertIs(from_ch.offer('a fail'), False)
-            self.assertEqual(await a_ch.a_get(), 'a1')
-            self.assertEqual(await a_ch.a_get(), 'a2')
+            self.assertEqual(await a_ch.get(), 'a1')
+            self.assertEqual(await a_ch.get(), 'a2')
             await asyncio.sleep(0.1)
             self.assertIsNone(a_ch.poll())
 
-            await from_ch.a_put('b1')
-            await from_ch.a_put('b2')
-            await from_ch.a_put('b3')
-            await from_ch.a_put('b4')
+            await from_ch.put('b1')
+            await from_ch.put('b2')
+            await from_ch.put('b3')
+            await from_ch.put('b4')
             await asyncio.sleep(0.1)
             self.assertIs(from_ch.offer('b fail'), False)
-            self.assertEqual(await b_ch.a_get(), 'b1')
-            self.assertEqual(await b_ch.a_get(), 'b2')
-            self.assertEqual(await b_ch.a_get(), 'b3')
-            self.assertEqual(await b_ch.a_get(), 'b4')
+            self.assertEqual(await b_ch.get(), 'b1')
+            self.assertEqual(await b_ch.get(), 'b2')
+            self.assertEqual(await b_ch.get(), 'b3')
+            self.assertEqual(await b_ch.get(), 'b4')
             await asyncio.sleep(0.1)
             self.assertIsNone(b_ch.poll())
 
@@ -463,13 +463,13 @@ class TestMixAsyncio(unittest.TestCase):
             from_ch1, from_ch2, to_ch = chan(), chan(), chan(1)
             m = c.mix(to_ch)
             m.admix(from_ch1)
-            await from_ch1.a_put('from_ch1')
-            self.assertEqual(await to_ch.a_get(), 'from_ch1')
+            await from_ch1.put('from_ch1')
+            self.assertEqual(await to_ch.get(), 'from_ch1')
             m.admix(from_ch2)
-            await from_ch1.a_put('from_ch1 again')
-            self.assertEqual(await to_ch.a_get(), 'from_ch1 again')
-            await from_ch2.a_put('from_ch2')
-            self.assertEqual(await to_ch.a_get(), 'from_ch2')
+            await from_ch1.put('from_ch1 again')
+            self.assertEqual(await to_ch.get(), 'from_ch1 again')
+            await from_ch2.put('from_ch2')
+            self.assertEqual(await to_ch.get(), 'from_ch2')
 
         asyncio.run(main())
 
@@ -478,16 +478,16 @@ class TestMixAsyncio(unittest.TestCase):
             from_ch1, from_ch2, to_ch = chan(1), chan(1), chan(1)
             m = c.mix(to_ch)
             m.admix(from_ch1)
-            await from_ch1.a_put('from_ch1')
-            self.assertEqual(await to_ch.a_get(), 'from_ch1')
+            await from_ch1.put('from_ch1')
+            self.assertEqual(await to_ch.get(), 'from_ch1')
             m.admix(from_ch2)
             m.unmix(from_ch1)
-            await from_ch2.a_put('from_ch2')
-            self.assertEqual(await to_ch.a_get(), 'from_ch2')
-            await from_ch1.a_put('remain in from_ch1')
+            await from_ch2.put('from_ch2')
+            self.assertEqual(await to_ch.get(), 'from_ch2')
+            await from_ch1.put('remain in from_ch1')
             await asyncio.sleep(0.1)
             self.assertIsNone(to_ch.poll())
-            self.assertEqual(await from_ch1.a_get(), 'remain in from_ch1')
+            self.assertEqual(await from_ch1.get(), 'remain in from_ch1')
 
         asyncio.run(main())
 
@@ -497,14 +497,14 @@ class TestMixAsyncio(unittest.TestCase):
             m = c.mix(to_ch)
             m.admix(from_ch1)
             m.admix(from_ch2)
-            await from_ch1.a_put('from_ch1')
-            self.assertEqual(await to_ch.a_get(), 'from_ch1')
-            await from_ch2.a_put('from_ch2')
-            self.assertEqual(await to_ch.a_get(), 'from_ch2')
+            await from_ch1.put('from_ch1')
+            self.assertEqual(await to_ch.get(), 'from_ch1')
+            await from_ch2.put('from_ch2')
+            self.assertEqual(await to_ch.get(), 'from_ch2')
             m.unmix_all()
             await asyncio.sleep(0.1)
-            await from_ch1.a_put('ignore from_ch1 item')
-            await from_ch2.a_put('ignore from_ch2 item')
+            await from_ch1.put('ignore from_ch1 item')
+            await from_ch2.put('ignore from_ch2 item')
             await asyncio.sleep(0.1)
             self.assertIsNone(to_ch.poll())
 
@@ -517,16 +517,16 @@ class TestMixAsyncio(unittest.TestCase):
             m = c.mix(to_ch)
             m.toggle({unmuted_ch: {'mute': False},
                       muted_ch: {'mute': True}})
-            await unmuted_ch.a_put('not muted')
-            self.assertEqual(await to_ch.a_get(), 'not muted')
-            await muted_ch.a_put('mute me')
+            await unmuted_ch.put('not muted')
+            self.assertEqual(await to_ch.get(), 'not muted')
+            await muted_ch.put('mute me')
             self.assertIsNone(to_ch.poll())
 
             m.toggle({unmuted_ch: {'mute': True},
                       muted_ch: {'mute': False}})
-            await muted_ch.a_put('the mute can now talk')
-            self.assertEqual(await to_ch.a_get(), 'the mute can now talk')
-            await unmuted_ch.a_put('i made a deal with Ursula')
+            await muted_ch.put('the mute can now talk')
+            self.assertEqual(await to_ch.get(), 'the mute can now talk')
+            await unmuted_ch.put('i made a deal with Ursula')
             self.assertIsNone(to_ch.poll())
 
         asyncio.run(main())
@@ -537,19 +537,19 @@ class TestMixAsyncio(unittest.TestCase):
             m = c.mix(to_ch)
             m.toggle({unpaused_ch: {'pause': False},
                       paused_ch: {'pause': True}})
-            await unpaused_ch.a_put('not paused')
-            self.assertEqual(await to_ch.a_get(), 'not paused')
-            await paused_ch.a_put('remain in paused_ch')
+            await unpaused_ch.put('not paused')
+            self.assertEqual(await to_ch.get(), 'not paused')
+            await paused_ch.put('remain in paused_ch')
             await asyncio.sleep(0.1)
-            self.assertEqual(await paused_ch.a_get(), 'remain in paused_ch')
+            self.assertEqual(await paused_ch.get(), 'remain in paused_ch')
 
             m.toggle({unpaused_ch: {'pause': True},
                       paused_ch: {'pause': False}})
-            await paused_ch.a_put('no longer paused')
-            self.assertEqual(await to_ch.a_get(), 'no longer paused')
-            await unpaused_ch.a_put('paused now')
+            await paused_ch.put('no longer paused')
+            self.assertEqual(await to_ch.get(), 'no longer paused')
+            await unpaused_ch.put('paused now')
             await asyncio.sleep(0.1)
-            self.assertEqual(await unpaused_ch.a_get(), 'paused now')
+            self.assertEqual(await unpaused_ch.get(), 'paused now')
 
         asyncio.run(main())
 
@@ -558,9 +558,9 @@ class TestMixAsyncio(unittest.TestCase):
             from_ch, to_ch = chan(1), chan(1)
             m = c.mix(to_ch)
             m.toggle({from_ch: {'pause': True, 'mute': True}})
-            await from_ch.a_put('stay in from_ch')
+            await from_ch.put('stay in from_ch')
             await asyncio.sleep(0.1)
-            self.assertEqual(await from_ch.a_get(), 'stay in from_ch')
+            self.assertEqual(await from_ch.get(), 'stay in from_ch')
 
         asyncio.run(main())
 
@@ -569,8 +569,8 @@ class TestMixAsyncio(unittest.TestCase):
             from_ch, to_ch = chan(), chan(1)
             m = c.mix(to_ch)
             m.toggle({from_ch: {'solo': True, 'pause': True, 'mute': True}})
-            await from_ch.a_put('success')
-            self.assertEqual(await to_ch.a_get(), 'success')
+            await from_ch.put('success')
+            self.assertEqual(await to_ch.get(), 'success')
 
         asyncio.run(main())
 
@@ -584,23 +584,23 @@ class TestMixAsyncio(unittest.TestCase):
             m.toggle({solo_ch1: {'solo': True},
                       solo_ch2: {'solo': True},
                       non_solo_ch: {}})
-            await solo_ch1.a_put('solo_ch1 not muted')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch1 not muted')
-            await solo_ch2.a_put('solo_ch2 not muted')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch2 not muted')
-            await non_solo_ch.a_put('drop me')
+            await solo_ch1.put('solo_ch1 not muted')
+            self.assertEqual(await to_ch.get(), 'solo_ch1 not muted')
+            await solo_ch2.put('solo_ch2 not muted')
+            self.assertEqual(await to_ch.get(), 'solo_ch2 not muted')
+            await non_solo_ch.put('drop me')
             await asyncio.sleep(0.1)
             self.assertIsNone(to_ch.poll())
 
             m.toggle({solo_ch1: {'solo': False},
                       solo_ch2: {'solo': False}})
             await asyncio.sleep(0.1)
-            await solo_ch1.a_put('solo_ch1 still not muted')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch1 still not muted')
-            await solo_ch2.a_put('solo_ch2 still not muted')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch2 still not muted')
-            await non_solo_ch.a_put('non_solo_ch not muted')
-            self.assertEqual(await to_ch.a_get(), 'non_solo_ch not muted')
+            await solo_ch1.put('solo_ch1 still not muted')
+            self.assertEqual(await to_ch.get(), 'solo_ch1 still not muted')
+            await solo_ch2.put('solo_ch2 still not muted')
+            self.assertEqual(await to_ch.get(), 'solo_ch2 still not muted')
+            await non_solo_ch.put('non_solo_ch not muted')
+            self.assertEqual(await to_ch.get(), 'non_solo_ch not muted')
 
         asyncio.run(main())
 
@@ -614,23 +614,23 @@ class TestMixAsyncio(unittest.TestCase):
             m.toggle({solo_ch1: {'solo': True},
                       solo_ch2: {'solo': True},
                       non_solo_ch: {}})
-            await solo_ch1.a_put('solo_ch1 not paused')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch1 not paused')
-            await solo_ch2.a_put('solo_ch2 not paused')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch2 not paused')
-            await non_solo_ch.a_put('stay in non_solo_ch')
+            await solo_ch1.put('solo_ch1 not paused')
+            self.assertEqual(await to_ch.get(), 'solo_ch1 not paused')
+            await solo_ch2.put('solo_ch2 not paused')
+            self.assertEqual(await to_ch.get(), 'solo_ch2 not paused')
+            await non_solo_ch.put('stay in non_solo_ch')
             await asyncio.sleep(0.1)
-            self.assertEqual(await non_solo_ch.a_get(), 'stay in non_solo_ch')
+            self.assertEqual(await non_solo_ch.get(), 'stay in non_solo_ch')
 
             m.toggle({solo_ch1: {'solo': False},
                       solo_ch2: {'solo': False}})
             await asyncio.sleep(0.1)
-            await solo_ch1.a_put('solo_ch1 still not paused')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch1 still not paused')
-            await solo_ch2.a_put('solo_ch2 still not paused')
-            self.assertEqual(await to_ch.a_get(), 'solo_ch2 still not paused')
-            await non_solo_ch.a_put('non_solo_ch not paused')
-            self.assertEqual(await to_ch.a_get(), 'non_solo_ch not paused')
+            await solo_ch1.put('solo_ch1 still not paused')
+            self.assertEqual(await to_ch.get(), 'solo_ch1 still not paused')
+            await solo_ch2.put('solo_ch2 still not paused')
+            self.assertEqual(await to_ch.get(), 'solo_ch2 still not paused')
+            await non_solo_ch.put('non_solo_ch not paused')
+            self.assertEqual(await to_ch.get(), 'non_solo_ch not paused')
 
         asyncio.run(main())
 
@@ -642,7 +642,7 @@ class TestMixAsyncio(unittest.TestCase):
             m.toggle({from_ch: {}, unmix_ch: {}})
 
             # Start waiting put to to_ch
-            await from_ch.a_put('successful transfer')
+            await from_ch.put('successful transfer')
             await asyncio.sleep(0.1)
 
             # Apply operations while mix is waiting on to_ch
@@ -651,18 +651,18 @@ class TestMixAsyncio(unittest.TestCase):
             m.toggle({pause_ch: {'pause': True}})
 
             # Confirm state is correct
-            self.assertEqual(await to_ch.a_get(), 'successful transfer')
+            self.assertEqual(await to_ch.get(), 'successful transfer')
 
-            await admix_ch.a_put('admix_ch added')
-            self.assertEqual(await to_ch.a_get(), 'admix_ch added')
+            await admix_ch.put('admix_ch added')
+            self.assertEqual(await to_ch.get(), 'admix_ch added')
 
-            await unmix_ch.a_put('unmix_ch removed')
+            await unmix_ch.put('unmix_ch removed')
             await asyncio.sleep(0.1)
-            self.assertEqual(await unmix_ch.a_get(), 'unmix_ch removed')
+            self.assertEqual(await unmix_ch.get(), 'unmix_ch removed')
 
-            await pause_ch.a_put('pause_ch paused')
+            await pause_ch.put('pause_ch paused')
             await asyncio.sleep(0.1)
-            self.assertEqual(await pause_ch.a_get(), 'pause_ch paused')
+            self.assertEqual(await pause_ch.get(), 'pause_ch paused')
 
         asyncio.run(main())
 
@@ -673,7 +673,7 @@ class TestMixAsyncio(unittest.TestCase):
             m.admix(from_ch)
             from_ch.close()
             await asyncio.sleep(0.1)
-            self.assertIs(await to_ch.a_put('success'), True)
+            self.assertIs(await to_ch.put('success'), True)
 
         asyncio.run(main())
 
@@ -684,10 +684,10 @@ class TestMixAsyncio(unittest.TestCase):
             m.admix(from_ch)
             await asyncio.sleep(0.1)
             to_ch.close()
-            await from_ch.a_put('mix consumes me')
-            await from_ch.a_put('mix ignores me')
+            await from_ch.put('mix consumes me')
+            await from_ch.put('mix ignores me')
             await asyncio.sleep(0.1)
-            self.assertEqual(await from_ch.a_get(), 'mix ignores me')
+            self.assertEqual(await from_ch.get(), 'mix ignores me')
 
         asyncio.run(main())
 
@@ -709,7 +709,7 @@ class TestPipe(unittest.TestCase):
             src, dest = chan(), chan()
             c.pipe(src, dest)
             src.close()
-            self.assertIsNone(await dest.a_get())
+            self.assertIsNone(await dest.get())
 
         asyncio.run(main())
 
@@ -727,8 +727,8 @@ class TestPipe(unittest.TestCase):
             c.pipe(src, dest, close=False)
             src.close()
             await asyncio.sleep(0.1)
-            dest.a_put('success')
-            self.assertEqual(await dest.a_get(), 'success')
+            dest.put('success')
+            self.assertEqual(await dest.get(), 'success')
 
         asyncio.run(main())
 
@@ -739,9 +739,9 @@ class TestPipe(unittest.TestCase):
             c.pipe(src, dest)
             await asyncio.sleep(0.1)
             dest.close()
-            self.assertEqual(await dest.a_get(), 'intoDest1')
-            self.assertEqual(await dest.a_get(), 'intoDest2')
-            self.assertIsNone(await dest.a_get())
+            self.assertEqual(await dest.get(), 'intoDest1')
+            self.assertEqual(await dest.get(), 'intoDest2')
+            self.assertIsNone(await dest.get())
             await asyncio.sleep(0.1)
             self.assertIsNone(src.poll())
 
@@ -754,7 +754,7 @@ class TestReduce(unittest.TestCase):
             ch = chan()
             ch.close()
             result_ch = c.reduce(lambda: None, 'init', ch)
-            self.assertEqual(await result_ch.a_get(), 'init')
+            self.assertEqual(await result_ch.get(), 'init')
 
         asyncio.run(main())
 
@@ -762,7 +762,7 @@ class TestReduce(unittest.TestCase):
         async def main():
             in_ch = c.to_chan(range(4))
             result_ch = c.reduce(lambda x, y: x + y, 100, in_ch)
-            self.assertEqual(await result_ch.a_get(), 106)
+            self.assertEqual(await result_ch.get(), 106)
 
         asyncio.run(main())
 
@@ -773,7 +773,7 @@ class TestReduce(unittest.TestCase):
                                                 xf.identity,
                                                 lambda x, y: x + y),
                                  in_ch)
-            self.assertEqual(await result_ch.a_get(), 106)
+            self.assertEqual(await result_ch.get(), 106)
 
         asyncio.run(main())
 
@@ -785,7 +785,7 @@ class TestReduce(unittest.TestCase):
                                                 xf.identity,
                                                 lambda x, y: x + y),
                                  in_ch)
-            self.assertEqual(await result_ch.a_get(), 100)
+            self.assertEqual(await result_ch.get(), 100)
 
         asyncio.run(main())
 
@@ -810,7 +810,7 @@ class TestReduce(unittest.TestCase):
                 return result + val
 
             result_ch = c.reduce(rf, 100, in_ch)
-            self.assertEqual(await result_ch.a_get(), 103)
+            self.assertEqual(await result_ch.get(), 103)
 
         asyncio.run(main())
 
@@ -827,7 +827,7 @@ class TestTransduce(unittest.TestCase):
                 return result
 
             result_ch = c.transduce(xf.partition_all(2), rf, [], ch)
-            self.assertEqual(await result_ch.a_get(), [(1, 2), (3,)])
+            self.assertEqual(await result_ch.get(), [(1, 2), (3,)])
 
         asyncio.run(main())
 
@@ -842,7 +842,7 @@ class TestTransduce(unittest.TestCase):
                 return result
 
             result_ch = c.transduce(xf.take(2), rf, [], ch)
-            self.assertEqual(await result_ch.a_get(), [1, 2])
+            self.assertEqual(await result_ch.get(), [1, 2])
 
         asyncio.run(main())
 
@@ -854,7 +854,7 @@ class TestTransduce(unittest.TestCase):
                                                    xf.identity,
                                                    lambda x, y: x + y),
                                     in_ch)
-            self.assertEqual(await result_ch.a_get(), 102)
+            self.assertEqual(await result_ch.get(), 102)
 
         asyncio.run(main())
 
@@ -867,7 +867,7 @@ class TestTransduce(unittest.TestCase):
                                                    xf.identity,
                                                    lambda x, y: x + y),
                                     in_ch)
-            self.assertEqual(await result_ch.a_get(), 100)
+            self.assertEqual(await result_ch.get(), 100)
 
         asyncio.run(main())
 
@@ -889,8 +889,8 @@ class TestMerge(unittest.TestCase):
         async def main():
             src1, src2 = chan(), chan()
             m = c.merge([src1, src2], 2)
-            await src1.a_put('src1')
-            await src2.a_put('src2')
+            await src1.put('src1')
+            await src2.put('src2')
             src1.close()
             src2.close()
             self.assertEqual([x async for x in m], ['src1', 'src2'])
@@ -904,8 +904,8 @@ class TestSplit(unittest.TestCase):
             src_ch = chan()
             src_ch.close()
             t_ch, f_ch = c.split(lambda _: True, src_ch)
-            self.assertIsNone(await t_ch.a_get())
-            self.assertIsNone(await f_ch.a_get())
+            self.assertIsNone(await t_ch.get())
+            self.assertIsNone(await f_ch.get())
 
         asyncio.run(main())
 
@@ -913,12 +913,12 @@ class TestSplit(unittest.TestCase):
         async def main():
             t_ch, f_ch = c.split(lambda x: x % 2 == 0,
                                  c.to_chan([1, 2, 3, 4]))
-            self.assertEqual(await f_ch.a_get(), 1)
-            self.assertEqual(await t_ch.a_get(), 2)
-            self.assertEqual(await f_ch.a_get(), 3)
-            self.assertEqual(await t_ch.a_get(), 4)
-            self.assertIsNone(await f_ch.a_get())
-            self.assertIsNone(await t_ch.a_get())
+            self.assertEqual(await f_ch.get(), 1)
+            self.assertEqual(await t_ch.get(), 2)
+            self.assertEqual(await f_ch.get(), 3)
+            self.assertEqual(await t_ch.get(), 4)
+            self.assertIsNone(await f_ch.get())
+            self.assertIsNone(await t_ch.get())
 
         asyncio.run(main())
 
@@ -956,7 +956,7 @@ class TestAsyncPut(unittest.TestCase):
         ch = chan()
         prom = hd.Promise()
         ch.f_put('val', prom.deliver)
-        self.assertEqual(ch.t_get(), 'val')
+        self.assertEqual(ch.b_get(), 'val')
         self.assertIs(prom.deref(), True)
 
     def test_cb_called_on_caller_if_buffer_not_full(self):
@@ -976,7 +976,7 @@ class TestAsyncGet(unittest.TestCase):
 
     def test_return_none_if_buffer_not_empty(self):
         ch = chan(1)
-        ch.t_put('val')
+        ch.b_put('val')
         self.assertIsNone(ch.f_get(xf.identity))
 
     def test_return_none_if_buffer_empty(self):
@@ -991,13 +991,13 @@ class TestAsyncGet(unittest.TestCase):
         prom = hd.Promise()
         ch = chan()
         ch.f_get(prom.deliver)
-        ch.t_put('val')
+        ch.b_put('val')
         self.assertEqual(prom.deref(), 'val')
 
     def test_cb_called_on_caller_if_buffer_not_empty(self):
         prom = hd.Promise()
         ch = chan(1)
-        ch.t_put('val')
+        ch.b_put('val')
         ch.f_get(lambda x: prom.deliver([x, threading.get_ident()]))
         self.assertEqual(prom.deref(), ['val', threading.get_ident()])
 

@@ -170,7 +170,7 @@ def thread_call(f, executor=None):
         with set_loop(loop):
             ret = f()
             if ret is not None:
-                ch.t_put(ret)
+                ch.b_put(ret)
             ch.close()
 
     if executor is None:
@@ -183,7 +183,7 @@ def thread_call(f, executor=None):
 def to_iter(ch):
     """Returns an iterator over the values from the provided channel."""
     while True:
-        val = ch.t_get()
+        val = ch.b_get()
         if val is None:
             break
         yield val
@@ -210,7 +210,7 @@ def go(coro):
         async def put_result_to_ch():
             ret = await coro_task
             if ret is not None:
-                await ch.a_put(ret)
+                await ch.put(ret)
             ch.close()
 
         loop.create_task(put_result_to_ch())
@@ -276,7 +276,7 @@ def reduce(rf, init, ch=_Undefined):
 def _transduce(xform, rf, init, ch):
     async def proc():
         xrf = xform(rf)
-        ret = await reduce(xrf, init, ch).a_get()
+        ret = await reduce(xrf, init, ch).get()
         return xrf(ret)
 
     return go(proc())
@@ -330,7 +330,7 @@ def onto_chan(ch, coll, *, close=True):
     """
     async def proc():
         for x in coll:
-            await ch.a_put(x)
+            await ch.put(x)
         if close:
             ch.close()
 
@@ -361,7 +361,7 @@ def pipe(from_ch, to_ch, *, close=True):
     """
     async def proc():
         async for val in from_ch:
-            if not await to_ch.a_put(val):
+            if not await to_ch.put(val):
                 break
         if close:
             to_ch.close()
@@ -389,7 +389,7 @@ def merge(chs, buf_or_n=None):
             if val is None:
                 ports.remove(ch)
             else:
-                await to_ch.a_put(val)
+                await to_ch.put(val)
         to_ch.close()
 
     go(proc())
@@ -445,7 +445,7 @@ class mult:
         async for item in self._from_ch:
             with self._lock:
                 chs = tuple(self._taps)
-            results = await _asyncio.gather(*(ch.a_put(item) for ch in chs))
+            results = await _asyncio.gather(*(ch.put(item) for ch in chs))
             with self._lock:
                 for ch, is_open in zip(chs, results):
                     if not is_open:
@@ -525,7 +525,7 @@ class pub:
             with self._lock:
                 m = self._mults.get(self._topic_fn(item), None)
             if m is not None:
-                await m._from_ch.a_put(item)
+                await m._from_ch.put(item)
 
         with self._lock:
             for m in self._mults.values():
@@ -642,12 +642,12 @@ class mix:
                 live_chs.add(ch)
 
         if len(soloed_chs) == 0:
-            self._state_ch.t_put({'live_chs': live_chs,
+            self._state_ch.b_put({'live_chs': live_chs,
                                   'muted_chs': muted_chs})
         elif self._solo_mode == 'pause':
-            self._state_ch.t_put({'live_chs': soloed_chs, 'muted_chs': set()})
+            self._state_ch.b_put({'live_chs': soloed_chs, 'muted_chs': set()})
         elif self._solo_mode == 'mute':
-            self._state_ch.t_put({'live_chs': soloed_chs,
+            self._state_ch.b_put({'live_chs': soloed_chs,
                                   'muted_chs': muted_chs.union(live_chs)})
 
     async def _proc(self):
@@ -665,7 +665,7 @@ class mix:
                 muted_chs.discard(ch)
             elif ch in muted_chs:
                 pass
-            elif not await self._to_ch.a_put(val):
+            elif not await self._to_ch.put(val):
                 break
 
 
@@ -689,9 +689,9 @@ def split(pred, ch, true_buf=None, false_buf=None):
     async def proc():
         async for x in ch:
             if pred(x):
-                await true_ch.a_put(x)
+                await true_ch.put(x)
             else:
-                await false_ch.a_put(x)
+                await false_ch.put(x)
         true_ch.close()
         false_ch.close()
 
