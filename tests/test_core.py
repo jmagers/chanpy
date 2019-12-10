@@ -9,6 +9,10 @@ from chanpy import chan, xf, handlers as hd
 from concurrent.futures import ThreadPoolExecutor
 
 
+async def a_list(ch):
+    return await c.to_list(ch).a_get()
+
+
 class TestThreadCall(unittest.TestCase):
     def setUp(self):
         c.set_loop(asyncio.new_event_loop())
@@ -696,7 +700,7 @@ class TestPipe(unittest.TestCase):
             c.async_put(src, 1)
             c.async_put(src, 2)
             src.close()
-            self.assertEqual(await c.a_list(dest), [1, 2])
+            self.assertEqual(await a_list(dest), [1, 2])
 
         asyncio.run(main())
 
@@ -923,8 +927,8 @@ class TestSplit(unittest.TestCase):
             t_ch, f_ch = c.split(lambda x: x % 2 == 0,
                                  c.to_chan([1, 2, 3, 4, 5]),
                                  2, 3)
-            self.assertEqual(await c.a_list(t_ch), [2, 4])
-            self.assertEqual(await c.a_list(f_ch), [1, 3, 5])
+            self.assertEqual(await a_list(t_ch), [2, 4])
+            self.assertEqual(await a_list(f_ch), [1, 3, 5])
 
         asyncio.run(main())
 

@@ -9,6 +9,14 @@ from chanpy import buffers, chan, xf
 from chanpy.channel import Chan
 
 
+def b_list(ch):
+    return list(c.to_iter(ch))
+
+
+async def a_list(ch):
+    return await c.to_list(ch).a_get()
+
+
 class TestAsync(unittest.TestCase):
     def test_thread_put_to_async_get_without_wait(self):
         def putter(ch):
@@ -51,16 +59,15 @@ class TestAsync(unittest.TestCase):
         asyncio.run(main())
 
     def test_go_from_different_thread(self):
-        def getter_thread(loop, ch):
+        def getter_thread(ch):
             async def getter():
                 return await ch.a_get()
 
-            return c.go(getter(), loop).t_get()
+            return c.go(getter()).t_get()
 
         async def main():
-            loop = asyncio.get_running_loop()
             ch = chan()
-            thread_result_ch = c.thread_call(lambda: getter_thread(loop, ch))
+            thread_result_ch = c.thread_call(lambda: getter_thread(ch))
             self.assertIs(await ch.a_put('success'), True)
             self.assertEqual(await thread_result_ch.a_get(), 'success')
 
@@ -73,7 +80,7 @@ class TestAsync(unittest.TestCase):
         indirectly.
 
         Example:
-            # If 'go' used a wrapper couroutine around 'coro' then 'coro' may
+            # If 'go' used a wrapper coroutine around 'coro' then 'coro' may
             # never be added to the loop. This is because there is no guarantee
             # that the wrapper coroutine will ever run and thus call await on
             # 'coro'.
@@ -81,7 +88,7 @@ class TestAsync(unittest.TestCase):
             # The following 'go' implementation would fail if wrapper never
             # ends up running:
 
-            def go(coro, loop):
+            def go(coro):
                 ch = chan(1)
 
                 async def wrapper():
@@ -90,19 +97,16 @@ class TestAsync(unittest.TestCase):
                         await ch.a_put(ret)
                     ch.close()
 
-                asyncio.run_coroutine_threadsafe(wrapper(), loop)
+                asyncio.run_coroutine_threadsafe(wrapper(), get_loop())
         """
 
-        def thread(loop):
+        def thread():
             async def coro():
                 pass
-            c.go(coro(), loop)
+            c.go(coro())
 
         async def main():
-            loop = asyncio.get_running_loop()
-            t = threading.Thread(target=thread, args=[loop])
-            t.start()
-            t.join()
+            c.thread_call(thread).t_get()
 
         # Assert does NOT warn
         with self.assertRaises(AssertionError):
@@ -300,7 +304,7 @@ class AbstractTestBufferedBlocking:
         ch.t_put('one')
         ch.t_put('two')
         ch.close()
-        self.assertEqual(c.t_list(ch), ['one', 'two'])
+        self.assertEqual(b_list(ch), ['one', 'two'])
 
 
 class TestBufferedBlockingChan(unittest.TestCase,
@@ -315,7 +319,7 @@ class AbstractTestXform:
         async def main():
             ch = self.chan(1, xf.map(lambda x: x + 1))
             c.onto_chan(ch, [0, 1, 2])
-            self.assertEqual(await c.a_list(ch), [1, 2, 3])
+            self.assertEqual(await a_list(ch), [1, 2, 3])
 
         asyncio.run(main())
 
@@ -323,7 +327,7 @@ class AbstractTestXform:
         async def main():
             ch = self.chan(1, xf.filter(lambda x: x % 2 == 0))
             c.onto_chan(ch, [0, 1, 2])
-            self.assertEqual(await c.a_list(ch), [0, 2])
+            self.assertEqual(await a_list(ch), [0, 2])
 
         asyncio.run(main())
 
@@ -331,7 +335,7 @@ class AbstractTestXform:
         async def main():
             ch = self.chan(1, xf.take(2))
             c.onto_chan(ch, [1, 2, 3, 4])
-            self.assertEqual(await c.a_list(ch), [1, 2])
+            self.assertEqual(await a_list(ch), [1, 2])
 
         asyncio.run(main())
 
@@ -341,7 +345,7 @@ class AbstractTestXform:
             for i in range(4):
                 c.async_put(ch, i)
             ch.close()
-            self.assertEqual(await c.a_list(ch), [0, 1])
+            self.assertEqual(await a_list(ch), [0, 1])
             self.assertEqual(len(ch._puts), 0)
 
         asyncio.run(main())
@@ -350,7 +354,7 @@ class AbstractTestXform:
         ch = self.chan(1, xf.cat)
         ch.t_put([1, 2, 3])
         ch.close()
-        self.assertEqual(c.t_list(ch), [1, 2, 3])
+        self.assertEqual(b_list(ch), [1, 2, 3])
 
     def test_xform_unsuccessful_offer_overfilled_buffer(self):
         ch = self.chan(1, xf.cat)
@@ -367,14 +371,14 @@ class AbstractTestXform:
         for i in range(3):
             ch.t_put(i)
         ch.close()
-        self.assertEqual(c.t_list(ch), [(0, 1), (2,)])
+        self.assertEqual(b_list(ch), [(0, 1), (2,)])
 
     def test_close_does_not_flush_xform_with_pending_puts(self):
         ch = self.chan(1, xf.partition_all(2))
         for i in range(3):
             c.async_put(ch, i)
         ch.close()
-        self.assertEqual(c.t_list(ch), [(0, 1), (2,)])
+        self.assertEqual(b_list(ch), [(0, 1), (2,)])
 
     def test_xform_ex_handler_non_none_return(self):
         def handler(e):
@@ -386,7 +390,7 @@ class AbstractTestXform:
         ch.t_put(0)
         ch.t_put(2)
         ch.close()
-        self.assertEqual(c.t_list(ch), [-12, 'zero', 6])
+        self.assertEqual(b_list(ch), [-12, 'zero', 6])
 
     def test_xform_ex_handler_none_return(self):
         def handler(e):
@@ -397,7 +401,7 @@ class AbstractTestXform:
         ch.t_put(0)
         ch.t_put(2)
         ch.close()
-        self.assertEqual(c.t_list(ch), [-12, 6])
+        self.assertEqual(b_list(ch), [-12, 6])
 
 
 class TestXformBufferedChan(unittest.TestCase, AbstractTestXform):
@@ -547,7 +551,7 @@ class AbstractTestUnbufferedBlocking:
         c.async_put(ch, 'one')
         c.async_put(ch, 'two')
         ch.close()
-        self.assertEqual(c.t_list(ch), ['one', 'two'])
+        self.assertEqual(b_list(ch), ['one', 'two'])
 
     def test_xform_exception(self):
         with self.assertRaises(TypeError):
@@ -1005,7 +1009,7 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
                          ('altsValue', ch))
         c.async_put(xformCh, 'secondTake')
         c.async_put(xformCh, 'dropMe')
-        self.assertEqual(c.t_list(xformCh), ['firstTake', 'secondTake'])
+        self.assertEqual(b_list(xformCh), ['firstTake', 'secondTake'])
 
 
 class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
@@ -1045,13 +1049,13 @@ class TestDroppingBuffer(unittest.TestCase):
         ch.t_put('keep2')
         ch.t_put('drop')
         ch.close()
-        self.assertEqual(c.t_list(ch), ['keep1', 'keep2'])
+        self.assertEqual(b_list(ch), ['keep1', 'keep2'])
 
     def test_buffer_does_not_overfill_with_xform(self):
         ch = chan(c.dropping_buffer(2), xf.cat)
         ch.t_put([1, 2, 3, 4])
         ch.close()
-        self.assertEqual(c.t_list(ch), [1, 2])
+        self.assertEqual(b_list(ch), [1, 2])
 
     def test_is_unblocking_buffer(self):
         self.assertIs(c.is_unblocking_buffer(c.dropping_buffer(1)), True)
@@ -1070,13 +1074,13 @@ class TestSlidingBuffer(unittest.TestCase):
         ch.t_put('keep1')
         ch.t_put('keep2')
         ch.close()
-        self.assertEqual(c.t_list(ch), ['keep1', 'keep2'])
+        self.assertEqual(b_list(ch), ['keep1', 'keep2'])
 
     def test_buffer_does_not_overfill_with_xform(self):
         ch = chan(c.sliding_buffer(2), xf.cat)
         ch.t_put([1, 2, 3, 4])
         ch.close()
-        self.assertEqual(c.t_list(ch), [3, 4])
+        self.assertEqual(b_list(ch), [3, 4])
 
     def test_is_unblocking_buffer(self):
         self.assertIs(c.is_unblocking_buffer(c.sliding_buffer(1)), True)

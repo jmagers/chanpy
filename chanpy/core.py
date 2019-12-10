@@ -9,27 +9,69 @@ from . import handlers as _hd
 from . import xf
 
 
-class _UNDEFINED:
-    pass
+class _Undefined:
+    """A default parameter value that a user could never pass in."""
 
 
 def buffer(n):
+    """Returns a fixed buffer with a capacity of n.
+
+    Puts to channels with this buffer will block if capacity is reached.
+
+    Raises:
+        ValueError: If n <= 0.
+    """
     return _bufs.FixedBuffer(n)
 
 
 def dropping_buffer(n):
+    """Returns a windowing buffer with a capacity of n.
+
+    Puts to channels with this buffer will appear successful after the capacity
+    is reached but will not be added to the buffer.
+
+    Raises:
+        ValueError: If n <= 0.
+    """
     return _bufs.DroppingBuffer(n)
 
 
 def sliding_buffer(n):
+    """Returns a windowing buffer with a capacity of n.
+
+    Puts to channels with this buffer will complete successfully after the
+    capacity is reached but will evict the oldest element in the buffer.
+
+    Raises:
+        ValueError: If n <= 0.
+    """
     return _bufs.SlidingBuffer(n)
 
 
 def is_unblocking_buffer(buf):
+    """Returns True if puts to buf will never block."""
     return isinstance(buf, _bufs.UnblockingBufferMixin)
 
 
 def chan(buf_or_n=None, xform=None, ex_handler=None):
+    """Returns a CSP channel with optional buffer, transducer, and ex_handler.
+
+    Args:
+        buf_or_n: An optional buffer that may be expressed as an int > 0.
+            If it's an int, a fixed buffer of that capacity will be used.
+            If None, an unbuffered channel is returned.
+        xform: An optional transducer used to transform elements put onto the
+            channel. buf_or_n must not be None if transducer is provided.
+        ex_handler: An optional function to handle exceptions raised during
+            transformation. Must accept a single parameter (the exception
+            raised). Any non-None return value will be put onto
+            the buffer.
+
+    Raises:
+        TypeError: If an xform or ex_handler was provided without a buffer.
+        ValueError: buf_or_n is a number <= 0.
+
+    """
     if buf_or_n is None:
         if xform is not None:
             raise TypeError('unbuffered channels cannot have an xform')
@@ -40,11 +82,23 @@ def chan(buf_or_n=None, xform=None, ex_handler=None):
     return _Chan(buf, xform, ex_handler)
 
 
-def promise_chan(xform=xf.identity):
-    return chan(_bufs.PromiseBuffer(), xform)
+def promise_chan(xform=None, ex_handler=None):
+    """Returns a channel that emits the same value forever.
+
+    Creates a channel with an optional transducer and exception handler that
+    always returns the same value to consumers. The value emitted will be the
+    first item put onto the channel or None if the channel was closed before
+    the first put.
+
+    Args:
+        xform: An optional transducer. See chan().
+        ex_handler: An optional exception handler. See chan().
+    """
+    return chan(_bufs.PromiseBuffer(), xform, ex_handler)
 
 
 def is_chan(ch):
+    """Returns True if ch is a channel."""
     return isinstance(ch, _Chan)
 
 
@@ -81,14 +135,44 @@ def _alts(flag, deliver_fn, ports, priority, default):
         if ret is not None:
             return ret[0], ch
 
-    if default is not _UNDEFINED:
+    if default is not _Undefined:
         with flag['lock']:
             if flag['is_active']:
                 flag['is_active'] = False
                 return default, 'default'
 
 
-def a_alts(ports, *, priority=False, default=_UNDEFINED):
+# TODO: Create an alt function that is variadic
+# TODO: Possibly remove a_ prefixes
+def a_alts(ports, *, priority=False, default=_Undefined):
+    """Returns an awaitable representing the first ports operation to complete.
+
+    If no default is provided then only the first ports operation to complete
+    will be committed. If default is provided and none of the ports operations
+    complete immediately then none of the ports operations will be committed
+    and default will be used to complete the returned awaitable instead.
+
+    Args:
+        ports: An iterable of get and put operations to attempt.
+            A get operation is represented as simply the channel to get from.
+            A put operations is represented as an iterable of the form
+            [channel, val] where val is the item to put onto the channel.
+        priority: An optional bool. If true, operations will be tried in order.
+            If false, operations will be tried in random order.
+        default: An optional value to use in case none of the operations in
+            ports complete immediately.
+
+    Returns: An awaitable that evaluates to a tuple of the form (val, ch).
+        If default is not provided then val will be what the first successful
+        ports operation returned and ch will be the channel used in that
+        operation. If default is provided and none of the ports operations
+        complete immediately then the awaitable will evaluate to
+        (default, 'default').
+
+    Raises:
+        ValueError: If ports is empty or contains both a get and put operation
+            to the same channel.
+    """
     flag = _hd.create_flag()
     future = _hd.FlagFuture(flag)
     ret = _alts(flag, _hd.future_deliver_fn(future), ports,
@@ -98,51 +182,81 @@ def a_alts(ports, *, priority=False, default=_UNDEFINED):
     return future
 
 
-def t_alts(ports, *, priority=False, default=_UNDEFINED):
+# TODO: Rename to b_alts
+def t_alts(ports, *, priority=False, default=_Undefined):
+    """Same as a_alts() except it blocks instead of returning an awaitable."""
     prom = _hd.Promise()
     ret = _alts(_hd.create_flag(), prom.deliver, ports, priority, default)
     return prom.deref() if ret is None else ret
 
 
+# Thread local data
 _local_data = _threading.local()
 
 
 def get_loop():
+    """Returns the event loop for the current thread.
+
+    If set_loop() has been used to register an event loop to the current thread
+    then that loop will be returned. If no such event loop exists then returns
+    the running loop in the current thread.
+
+    Raises:
+        RuntimeError: If no event loop has been registered and no loop is
+        running in the current thread.
+
+    See Also:
+        set_loop
+    """
     loop = getattr(_local_data, 'loop', None)
     return _asyncio.get_running_loop() if loop is None else loop
 
 
-def ensure_loop(loop):
-    return get_loop() if loop is None else loop
-
-
 def set_loop(loop):
+    """Registers the event loop for the current thread.
+
+    Returns: A context manager that on exit will unregister loop and reregister
+        the event loop that was originally set before set_loop was invoked.
+    """
+    prev_loop = getattr(_local_data, 'loop', None)
     _local_data.loop = loop
 
+    @_contextlib.contextmanager
+    def context_manager():
+        try:
+            yield
+        finally:
+            _local_data.loop = prev_loop
 
-def in_loop(loop):
+    return context_manager()
+
+
+def _in_loop(loop):
+    """Returns True if loop is the running event loop for the current thread."""
     try:
         return _asyncio.get_running_loop() is loop
     except RuntimeError:
         return False
 
 
-@_contextlib.contextmanager
-def loop_manager(loop):
-    prev_loop = getattr(_local_data, 'loop', None)
-    set_loop(loop)
-    try:
-        yield
-    finally:
-        set_loop(prev_loop)
-
-
 def thread_call(f, executor=None):
+    """Registers current loop to a separate thread and then calls f from it.
+
+    Calls f in another thread, returning immediately to the calling thread.
+    The separate thread will have the loop from the calling thread registered
+    to it while f runs.
+
+    Args:
+        f: A function accepting no arguments.
+        executor: An optional ThreadPoolExecutor to submit f to.
+
+    Returns: A channel that will emit the return value of f exactly once.
+    """
     loop = get_loop()
     ch = chan(1)
 
     def wrapper():
-        with loop_manager(loop):
+        with set_loop(loop):
             ret = f()
             if ret is not None:
                 ch.t_put(ret)
@@ -155,8 +269,23 @@ def thread_call(f, executor=None):
     return ch
 
 
-def async_put(port, val, f=lambda _: None, *, on_caller=True, executor=None):
-    ret = port._put(_hd.FnHandler(f), val)
+# TODO: Change this to use loop.call_soon_threadsafe instead of thread_call
+def async_put(ch, val, f=lambda _: None, *, on_caller=True, executor=None):
+    """Asynchronously puts val onto ch and calls f when complete.
+
+    Args:
+        ch: A channel to put val onto.
+        val: A value to put onto ch.
+        f: An optional function accepting a bool. Will be passed False if ch is
+            already closed or True if not.
+        on_caller: An optional bool. If true, f will be executed on the calling
+            thread if the put completes immediately. If false, f will always be
+            be executed on a separate thread.
+        executor: An optional ThreadPoolExecutor to submit f to.
+
+    Returns: False if channel is already closed or True if not.
+    """
+    ret = ch._put(_hd.FnHandler(f), val)
     if ret is None:
         return True
     elif on_caller:
@@ -166,8 +295,9 @@ def async_put(port, val, f=lambda _: None, *, on_caller=True, executor=None):
     return ret[0]
 
 
-def async_get(port, f, *, on_caller=True, executor=None):
-    ret = port._get(_hd.FnHandler(f))
+# TODO: Change this to use loop.call_soon_threadsafe instead of thread_call
+def async_get(ch, f, *, on_caller=True, executor=None):
+    ret = ch._get(_hd.FnHandler(f))
     if ret is None:
         return
     elif on_caller:
@@ -177,6 +307,7 @@ def async_get(port, f, *, on_caller=True, executor=None):
 
 
 def to_iter(ch):
+    """Returns an iterator over the values from the provided channel."""
     while True:
         val = ch.t_get()
         if val is None:
@@ -184,30 +315,21 @@ def to_iter(ch):
         yield val
 
 
-def t_list(ch):
-    return list(to_iter(ch))
+def go(coro):
+    """Adds a coroutine as a task to the current event loop.
 
+    Args:
+        coro: A coroutine.
 
-def t_tuple(ch):
-    return tuple(to_iter(ch))
-
-
-async def a_list(ch):
-    return [x async for x in ch]
-
-
-async def a_tuple(ch):
-    return tuple(await a_list(ch))
-
-
-def go(coro, loop=None):
-    loop = ensure_loop(loop)
+    Returns: A channel that will emit the return value of coro exactly once.
+    """
+    loop = get_loop()
     ch = chan(1)
 
     def create_tasks():
-        # coro and put_result_to_ch coroutines need to be added separately or
-        # else a 'coroutine never awaited' RuntimeWarning could get raised when
-        # call_soon_threadsafe is used
+        # Note: coro and put_result_to_ch coroutines need to be added
+        # separately or else a 'coroutine never awaited' RuntimeWarning could
+        # get raised when call_soon_threadsafe is used
 
         coro_task = _asyncio.create_task(coro)
 
@@ -219,7 +341,7 @@ def go(coro, loop=None):
 
         loop.create_task(put_result_to_ch())
 
-    if in_loop(loop):
+    if _in_loop(loop):
         create_tasks()
     else:
         loop.call_soon_threadsafe(create_tasks)
@@ -227,35 +349,14 @@ def go(coro, loop=None):
     return ch
 
 
-def call_soon(cb, loop=None, *, eager=False):
-    """Schedules cb to run in event loop.
-    Returns a ch that contains the return value."""
-    loop = ensure_loop(loop)
-    ch = chan(1)
-
-    def wrapper():
-        ret = cb()
-        if ret is not None:
-            ch.t_put(ret)
-        ch.close()
-
-    if in_loop(loop):
-        if eager:
-            wrapper()
-        else:
-            loop.call_soon(wrapper)
-    else:
-        loop.call_soon_threadsafe(wrapper)
-
-    return ch
-
-
 def timeout(msecs):
+    """Returns a channel that closes after given milliseconds."""
     ch = chan()
     get_loop().call_later(msecs / 1000, ch.close)
     return ch
 
 
+# TODO: Create goroutine decorator called goro
 def _reduce(rf, init, ch):
     async def proc():
         result = init
@@ -268,8 +369,32 @@ def _reduce(rf, init, ch):
     return go(proc())
 
 
-def reduce(rf, init, ch=_UNDEFINED):
-    if ch is _UNDEFINED:
+def reduce(rf, init, ch=_Undefined):
+    """
+    reduce(rf, ch) -> result_ch
+    reduce(rf, init, ch) -> result_ch
+
+    Asynchronously reduces a channel.
+
+    Asynchronously collects values from ch and reduces them using rf, placing
+    the final result in the returned channel. If ch is exhausted then init will
+    be used as the result. If ch is not exhausted then the first call to rf
+    will be rf(init, val) where val is taken from ch. rf will continue to get
+    called as rf(prev_return, next_ch_val) until either ch is exhausted or rf
+    returns a reduced value.
+
+    Args:
+        rf: A reducing function accepting 2 args. If init is not provided then
+            rf must return a value to be used as init when called with 0 args.
+        init: An optional initial value.
+        ch: A channel to get values from.
+
+    Returns: A channel containing the result of the reduction.
+
+    See Also:
+        transduce
+    """
+    if ch is _Undefined:
         return _reduce(rf, rf(), init)
     return _reduce(rf, init, ch)
 
@@ -283,13 +408,52 @@ def _transduce(xform, rf, init, ch):
     return go(proc())
 
 
-def transduce(xform, rf, init, ch=_UNDEFINED):
-    if ch is _UNDEFINED:
+def transduce(xform, rf, init, ch=_Undefined):
+    """
+    transduce(xform, rf, ch) -> result_ch
+    transduce(xform, rf, init, ch) -> result_ch
+
+    Asynchronously reduces a channel with a transformation.
+
+    Asynchronously collects values from ch and reduces them using a transformed
+    reducing function. The transformed reducing function == xform(rf).
+
+    Args:
+        xform: A transducer.
+        rf: A reducing function accepting both 1 and 2 arguments. If init is
+            not provided then rf must return a value to be used as init when
+            invoked with 0 arguments.
+        init: An optional initial value for reduction.
+        ch: A channel to get values from.
+
+    Returns: A channel containing the result of the reduction.
+
+    See Also:
+        reduce
+    """
+    if ch is _Undefined:
         return _transduce(xform, rf, rf(), init)
     return _transduce(xform, rf, init, ch)
 
 
+def to_list(ch):
+    """Asynchronously reduces the values from ch to a list.
+
+    Returns: A channel containing a list of values from ch.
+    """
+    return reduce(xf.append, ch)
+
+
 def onto_chan(ch, coll, *, close=True):
+    """Asynchronously transfers values from an iterable to a channel.
+
+    Args:
+        ch: A channel to put values onto.
+        coll: An iterable to get values from.
+        close: An optional bool. ch will be closed if true.
+
+    Returns: A channel that closes when transfer is finished.
+    """
     async def proc():
         for x in coll:
             await ch.a_put(x)
@@ -300,12 +464,27 @@ def onto_chan(ch, coll, *, close=True):
 
 
 def to_chan(coll):
+    """Returns a channel that emits all values from coll and then closes.
+
+    Args:
+        coll: An iterable to get values from.
+    """
     ch = chan()
     onto_chan(ch, coll)
     return ch
 
 
 def pipe(from_ch, to_ch, *, close=True):
+    """Asynchronously transfers all values from from_ch to to_ch.
+
+    Args:
+        from_ch: A channel to get values from.
+        to_ch: A channel to put values onto.
+        close: An optional bool. If true, to_ch will be closed after transfer
+            finishes.
+
+    Returns: to_ch.
+    """
     async def proc():
         async for val in from_ch:
             if not await to_ch.a_put(val):
@@ -317,8 +496,17 @@ def pipe(from_ch, to_ch, *, close=True):
     return to_ch
 
 
-def merge(chs, buf=None):
-    to_ch = chan(buf)
+def merge(chs, buf_or_n=None):
+    """Returns a channel that emits values from the provided source channels.
+
+    Transfers all values from chs onto the returned channel. The returned
+    channel closes after the transfer completes.
+
+    Args:
+        chs: An iterable of source channels.
+        buf_or_n: An optional buffer or int >= 0. See chan().
+    """
+    to_ch = chan(buf_or_n)
 
     async def proc():
         ports = set(chs)
@@ -334,7 +522,21 @@ def merge(chs, buf=None):
     return to_ch
 
 
-class Mult:
+class mult:
+    """A mult(iple) of the source ch that puts each of its values to its taps.
+
+    tap() can be used to subscribe a channel to the mult and therefore receive
+    copies of the values from ch. Taps can later be unsubscribed using untap()
+    or untap_all().
+
+    No tap will receive the next value from ch until all taps have accepted the
+    current value. If no tap exists, values will still be consumed from ch but
+    will be discarded.
+
+    Args:
+        ch: A channel to get values form.
+    """
+
     def __init__(self, ch):
         self._lock = _threading.Lock()
         self._from_ch = ch
@@ -342,21 +544,26 @@ class Mult:
         self._is_closed = False
         go(self._proc())
 
-    @property
-    def muxch(self):
-        return self._from_ch
-
     def tap(self, ch, *, close=True):
+        """Subscribes a channel as a consumer of the mult.
+
+        Args:
+            ch: A channel to receive values from the mult's source channel.
+            close: An optional bool. If true, ch will be closed after the
+                source channel becomes exhausted.
+        """
         with self._lock:
             if self._is_closed and close:
                 ch.close()
             self._taps[ch] = close
 
     def untap(self, ch):
+        """Unsubscribes a channel from the mult."""
         with self._lock:
             self._taps.pop(ch, None)
 
     def untap_all(self):
+        """Unsubscribes all taps from the mult."""
         with self._lock:
             self._taps.clear()
 
@@ -377,11 +584,25 @@ class Mult:
                     ch.close()
 
 
-def mult(ch):
-    return Mult(ch)
+class pub:
+    """A pub(lication) of the source ch divided into topics.
+
+    The values of ch will be categorized into topics defined by topic_fn.
+    Each topic will be given its own mult for channels to subscribe to.
+    Channels can be subscribed to a given topic with sub() and unsubscribed
+    with unsub() or unsub_all().
+
+    Args:
+        ch: A channel to get values from.
+        topic_fn: A function that given a value from ch returns a topic
+            identifier.
+        buf_fn: An optional function that given a topic returns a buffer to be
+            used with that topic's mult channel.
 
 
-class Pub:
+    See Also:
+        mult
+    """
     def __init__(self, ch, topic_fn, buf_fn=lambda _: None):
         self._lock = _threading.Lock()
         self._from_ch = ch
@@ -391,28 +612,38 @@ class Pub:
         go(self._proc())
 
     def sub(self, topic, ch, *, close=True):
+        """Subscribes a channel to the given topic.
+
+        Args:
+            topic: A topic identifier.
+            ch: A channel to subscribe.
+            close: An optional bool. If true, ch will be closed when the source
+                channel is exhausted.
+         """
         with self._lock:
             if topic not in self._mults:
                 self._mults[topic] = mult(chan(self._buf_fn(topic)))
             self._mults[topic].tap(ch, close=close)
 
     def unsub(self, topic, ch):
+        """"Unsubscribes a channel from the given topic."""
         with self._lock:
             m = self._mults.get(topic, None)
             if m is not None:
                 m.untap(ch)
                 if len(m._taps) == 0:
-                    m.muxch.close()
+                    m._from_ch.close()
                     self._mults.pop(topic)
 
-    def unsub_all(self, topic=_UNDEFINED):
+    def unsub_all(self, topic=_Undefined):
+        """Unsubscribes all subs from a topic or all topics if not provided."""
         with self._lock:
-            topics = tuple(self._mults) if topic is _UNDEFINED else [topic]
+            topics = tuple(self._mults) if topic is _Undefined else [topic]
             for t in topics:
                 m = self._mults.get(t, None)
                 if m is not None:
                     m.untap_all()
-                    m.muxch.close()
+                    m._from_ch.close()
                     self._mults.pop(t)
 
     async def _proc(self):
@@ -420,19 +651,34 @@ class Pub:
             with self._lock:
                 m = self._mults.get(self._topic_fn(item), None)
             if m is not None:
-                await m.muxch.a_put(item)
+                await m._from_ch.a_put(item)
 
         with self._lock:
             for m in self._mults.values():
-                m.muxch.close()
+                m._from_ch.close()
             self._mults.clear()
 
 
-def pub(ch, topic_fn, buf_fn=lambda _: None):
-    return Pub(ch, topic_fn, buf_fn)
+class mix:
+    """Consumes values from each of its source channels and puts them onto ch.
 
+    A source channel can be added with admix() and removed with unmix() or
+    unmix_all().
 
-class Mix:
+    A source channel can be given a set of attribute flags to modify how it is
+    consumed with toggle(). If a channel has its 'pause' attribute set to true
+    then the mix will stop consuming from it. Else if its 'mute' attribute is
+    set then the channel will still be consumed but its values discarded.
+
+    A source channel may also be soloed by setting the 'solo' attribute. If any
+    source channel is soloed then all of its other attributes will be ignored.
+    Furthermore, non-soloed channels will have their attributes ignored and
+    instead will take on whatever attribute has been set with solo_mode()
+    (defaults to 'mute' if solo_mode() hasn't been invoked).
+
+    Args:
+        ch: A channel to put values onto.
+    """
     def __init__(self, ch):
         self._lock = _threading.Lock()
         self._to_ch = ch
@@ -441,11 +687,21 @@ class Mix:
         self._solo_mode = 'mute'
         go(self._proc())
 
-    @property
-    def muxch(self):
-        return self._to_ch
-
     def toggle(self, state_map):
+        """Merges state_map with the current state of the mix.
+
+        The provided state_map is used to update the attributes of the mix's
+        source channels. state_map will be merged with the current state of the
+        mix. If state_map contains a channel that is not currently in the mix
+        then that channel will be added to the mix with the corresponding
+        attributes in state_map.
+
+        Args:
+            state_map: A dictionary of the form ch->attribute_map where
+                attribute_map is a dictionary of the form attribute->bool.
+                See mix for a list of supported attributes and corresponding
+                behaviors.
+        """
         for ch, state in state_map.items():
             if not is_chan(ch):
                 raise ValueError(f'state_map key is not a channel: '
@@ -466,19 +722,31 @@ class Mix:
             self._sync_state()
 
     def admix(self, ch):
+        """Adds ch as a source channel of the mix."""
         self.toggle({ch: {}})
 
     def unmix(self, ch):
+        """Removes ch from the set of source channels."""
         with self._lock:
             self._state_map.pop(ch, None)
             self._sync_state()
 
     def unmix_all(self):
+        """Removes all source channels from the mix."""
         with self._lock:
             self._state_map.clear()
             self._sync_state()
 
     def solo_mode(self, mode):
+        """Sets the mode for non-soloed source channels.
+
+        For as long as there is at least one soloed channel, non-soloed
+        source channels will have their attributes ignored and will instead
+        take on the provided mode.
+
+        Args:
+            mode: Either 'pause' or 'mute'. See mix for behaviors.
+        """
         if mode not in ['pause', 'mute']:
             raise ValueError(f'solo-mode is invalid: {mode}')
 
@@ -527,12 +795,22 @@ class Mix:
                 break
 
 
-def mix(ch):
-    return Mix(ch)
+def split(pred, ch, true_buf=None, false_buf=None):
+    """Splits the values of channel into 2 channels based on the predicate.
 
+    Returns a tuple of the form (true_ch, false_ch) where true_ch contains all
+    the values from ch where the predicate returns true and false_ch contains
+    all the values that return false.
 
-def split(pred, ch, t_buf=None, f_buf=None):
-    true_ch, false_ch = chan(t_buf), chan(f_buf)
+    Args:
+        pred: A predicate function.
+        ch: A channel to get values from.
+        true_buf: An optional buffer to use with true_ch. See chan().
+        false_buf: An optional buffer to use with false_ch. See chan().
+
+    Returns: A tuple of the form (true_ch, false_ch).
+    """
+    true_ch, false_ch = chan(true_buf), chan(false_buf)
 
     async def proc():
         async for x in ch:
