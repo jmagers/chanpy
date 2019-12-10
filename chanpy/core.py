@@ -4,8 +4,7 @@ import random as _random
 import threading as _threading
 from numbers import Number as _Number
 from . import buffers as _bufs
-from .channel import Chan as _Chan
-from . import handlers as _hd
+from .channel import alts, b_alts, alt, b_alt, Chan as _Chan
 from . import xf
 
 
@@ -100,95 +99,6 @@ def promise_chan(xform=None, ex_handler=None):
 def is_chan(ch):
     """Returns True if ch is a channel."""
     return isinstance(ch, _Chan)
-
-
-def _alts(flag, deliver_fn, ports, priority, default):
-    ports = list(ports)
-    if len(ports) == 0:
-        raise ValueError('alts must have at least one channel operation')
-    if not priority:
-        _random.shuffle(ports)
-
-    ops = {}
-
-    # Parse ports into ops
-    for p in ports:
-        try:
-            ch, val = p
-            op = {'type': 'put', 'value': val}
-        except TypeError:
-            ch = p
-            op = {'type': 'get'}
-        if ops.get(ch, op)['type'] != op['type']:
-            raise ValueError('cannot get and put to same channel')
-        ops[ch] = op
-
-    def create_handler(ch):
-        return _hd.FlagHandler(flag, lambda val: deliver_fn((val, ch)))
-
-    # Start ops
-    for ch, op in ops.items():
-        if op['type'] == 'get':
-            ret = ch._p_get(create_handler(ch))
-        elif op['type'] == 'put':
-            ret = ch._p_put(create_handler(ch), op['value'])
-        if ret is not None:
-            return ret[0], ch
-
-    if default is not _Undefined:
-        with flag['lock']:
-            if flag['is_active']:
-                flag['is_active'] = False
-                return default, 'default'
-
-
-# TODO: Move the alt/alts function definitions into the channel module
-# TODO: Create an alt function that is variadic
-# TODO: Possibly remove a_ prefixes
-def a_alts(ports, *, priority=False, default=_Undefined):
-    """Returns an awaitable representing the first ports operation to complete.
-
-    If no default is provided then only the first ports operation to complete
-    will be committed. If default is provided and none of the ports operations
-    complete immediately then none of the ports operations will be committed
-    and default will be used to complete the returned awaitable instead.
-
-    Args:
-        ports: An iterable of get and put operations to attempt.
-            A get operation is represented as simply the channel to get from.
-            A put operations is represented as an iterable of the form
-            [channel, val] where val is the item to put onto the channel.
-        priority: An optional bool. If true, operations will be tried in order.
-            If false, operations will be tried in random order.
-        default: An optional value to use in case none of the operations in
-            ports complete immediately.
-
-    Returns: An awaitable that evaluates to a tuple of the form (val, ch).
-        If default is not provided then val will be what the first successful
-        ports operation returned and ch will be the channel used in that
-        operation. If default is provided and none of the ports operations
-        complete immediately then the awaitable will evaluate to
-        (default, 'default').
-
-    Raises:
-        ValueError: If ports is empty or contains both a get and put operation
-            to the same channel.
-    """
-    flag = _hd.create_flag()
-    future = _hd.FlagFuture(flag)
-    ret = _alts(flag, _hd.future_deliver_fn(future), ports,
-                priority, default)
-    if ret is not None:
-        _asyncio.Future.set_result(future, ret)
-    return future
-
-
-# TODO: Rename to b_alts
-def t_alts(ports, *, priority=False, default=_Undefined):
-    """Same as a_alts() except it blocks instead of returning an awaitable."""
-    prom = _hd.Promise()
-    ret = _alts(_hd.create_flag(), prom.deliver, ports, priority, default)
-    return prom.deref() if ret is None else ret
 
 
 # Thread local data
@@ -475,7 +385,7 @@ def merge(chs, buf_or_n=None):
     async def proc():
         ports = set(chs)
         while len(ports) > 0:
-            val, ch = await a_alts(ports)
+            val, ch = await alts(ports)
             if val is None:
                 ports.remove(ch)
             else:
@@ -745,7 +655,7 @@ class mix:
         while True:
             data_chs = list(live_chs.union(muted_chs))
             _random.shuffle(data_chs)
-            val, ch = await a_alts([self._state_ch, *data_chs], priority=True)
+            val, ch = await alts([self._state_ch, *data_chs], priority=True)
             if ch is self._state_ch:
                 live_chs, muted_chs = val['live_chs'], val['muted_chs']
             elif val is None:

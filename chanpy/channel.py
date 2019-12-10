@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import random
 import threading
 from collections import deque
 from . import handlers as hd
@@ -270,3 +271,102 @@ class Chan:
             if value is None:
                 break
             yield value
+
+
+class _Undefined:
+    """A default parameter value that a user could never pass in."""
+
+
+def _alts(flag, deliver_fn, ports, priority, default):
+    ports = list(ports)
+    if len(ports) == 0:
+        raise ValueError('alts must have at least one channel operation')
+    if not priority:
+        random.shuffle(ports)
+
+    ops = {}
+
+    # Parse ports into ops
+    for p in ports:
+        try:
+            ch, val = p
+            op = {'type': 'put', 'value': val}
+        except TypeError:
+            ch = p
+            op = {'type': 'get'}
+        if ops.get(ch, op)['type'] != op['type']:
+            raise ValueError('cannot get and put to same channel')
+        ops[ch] = op
+
+    def create_handler(ch):
+        return hd.FlagHandler(flag, lambda val: deliver_fn((val, ch)))
+
+    # Start ops
+    for ch, op in ops.items():
+        if op['type'] == 'get':
+            ret = ch._p_get(create_handler(ch))
+        elif op['type'] == 'put':
+            ret = ch._p_put(create_handler(ch), op['value'])
+        if ret is not None:
+            return ret[0], ch
+
+    if default is not _Undefined:
+        with flag['lock']:
+            if flag['is_active']:
+                flag['is_active'] = False
+                return default, 'default'
+
+
+def alts(ports, *, priority=False, default=_Undefined):
+    """Returns an awaitable representing the first ports operation to complete.
+
+    If no default is provided then only the first ports operation to complete
+    will be committed. If default is provided and none of the ports operations
+    complete immediately then none of the ports operations will be committed
+    and default will be used to complete the returned awaitable instead.
+
+    Args:
+        ports: An iterable of get and put operations to attempt.
+            A get operation is represented as simply the channel to get from.
+            A put operations is represented as an iterable of the form
+            [channel, val] where val is the item to put onto the channel.
+        priority: An optional bool. If true, operations will be tried in order.
+            If false, operations will be tried in random order.
+        default: An optional value to use in case none of the operations in
+            ports complete immediately.
+
+    Returns: An awaitable that evaluates to a tuple of the form (val, ch).
+        If default is not provided then val will be what the first successful
+        ports operation returned and ch will be the channel used in that
+        operation. If default is provided and none of the ports operations
+        complete immediately then the awaitable will evaluate to
+        (default, 'default').
+
+    Raises:
+        ValueError: If ports is empty or contains both a get and put operation
+            to the same channel.
+    """
+    flag = hd.create_flag()
+    future = hd.FlagFuture(flag)
+    ret = _alts(flag, hd.future_deliver_fn(future), ports,
+                priority, default)
+    if ret is not None:
+        asyncio.Future.set_result(future, ret)
+    return future
+
+
+def b_alts(ports, *, priority=False, default=_Undefined):
+    """Same as alts() except it blocks instead of returning an awaitable."""
+    prom = hd.Promise()
+    ret = _alts(hd.create_flag(), prom.deliver, ports, priority, default)
+    return prom.deref() if ret is None else ret
+
+
+def alt(*ports, priority=False, default=_Undefined):
+    """A variadic version of alts()."""
+    return alts(ports, priority=priority, default=default)
+
+
+def b_alt(*ports, priority=False, default=_Undefined):
+    """A variadic version of b_alts()."""
+    return b_alts(ports, priority=priority, default=default)
