@@ -564,7 +564,7 @@ class TestMixAsyncio(unittest.TestCase):
 
         asyncio.run(main())
 
-    def test_solo_domintates_pause_and_mute(self):
+    def test_solo_dominates_pause_and_mute(self):
         async def main():
             from_ch, to_ch = chan(), chan(1)
             m = c.mix(to_ch)
@@ -697,8 +697,8 @@ class TestPipe(unittest.TestCase):
         async def main():
             src, dest = chan(), chan()
             c.pipe(src, dest)
-            c.async_put(src, 1)
-            c.async_put(src, 2)
+            src.f_put(1)
+            src.f_put(2)
             src.close()
             self.assertEqual(await a_list(dest), [1, 2])
 
@@ -942,53 +942,28 @@ class TestAsyncPut(unittest.TestCase):
         c.set_loop(None)
 
     def test_return_true_if_buffer_not_full(self):
-        self.assertIs(c.async_put(chan(1), 'val'), True)
+        self.assertIs(chan(1).f_put('val'), True)
 
     def test_returns_true_if_buffer_full_not_closed(self):
-        self.assertIs(c.async_put(chan(), 'val'), True)
+        self.assertIs(chan().f_put('val'), True)
 
     def test_return_false_if_closed(self):
         ch = chan()
         ch.close()
-        self.assertIs(c.async_put(ch, 'val'), False)
+        self.assertIs(ch.f_put('val'), False)
 
     def test_cb_called_if_buffer_full(self):
         ch = chan()
         prom = hd.Promise()
-        c.async_put(ch, 'val', prom.deliver)
+        ch.f_put('val', prom.deliver)
         self.assertEqual(ch.t_get(), 'val')
         self.assertIs(prom.deref(), True)
 
     def test_cb_called_on_caller_if_buffer_not_full(self):
         prom = hd.Promise()
-        c.async_put(chan(1),
-                    'val',
-                    lambda x: prom.deliver([x, threading.get_ident()]))
+        chan(1).f_put('val',
+                      lambda x: prom.deliver([x, threading.get_ident()]))
         self.assertEqual(prom.deref(), [True, threading.get_ident()])
-
-    def test_cb_called_on_different_thread_if_buffer_not_full(self):
-        prom = hd.Promise()
-        c.async_put(chan(1),
-                    'val',
-                    lambda x: prom.deliver([x, threading.get_ident()]),
-                    on_caller=False)
-        val, thread_id = prom.deref()
-        self.assertIs(val, True)
-        self.assertNotEqual(thread_id, threading.get_ident())
-
-    def test_cb_called_on_executor_if_buffer_not_full(self):
-        prom = hd.Promise()
-        executor = ThreadPoolExecutor(max_workers=1,
-                                      thread_name_prefix='executor')
-        c.async_put(chan(1),
-                    'val',
-                    lambda x: prom.deliver([x,
-                                            threading.current_thread().name]),
-                    on_caller=False,
-                    executor=executor)
-        val, thread_name = prom.deref()
-        self.assertIs(val, True)
-        self.assertTrue(thread_name.startswith('executor'))
 
 
 class TestAsyncGet(unittest.TestCase):
@@ -1002,20 +977,20 @@ class TestAsyncGet(unittest.TestCase):
     def test_return_none_if_buffer_not_empty(self):
         ch = chan(1)
         ch.t_put('val')
-        self.assertIsNone(c.async_get(ch, xf.identity))
+        self.assertIsNone(ch.f_get(xf.identity))
 
     def test_return_none_if_buffer_empty(self):
-        self.assertIsNone(c.async_get(chan(), xf.identity))
+        self.assertIsNone(chan().f_get(xf.identity))
 
     def test_return_none_if_closed(self):
         ch = chan()
         ch.close()
-        self.assertIsNone(c.async_get(ch, xf.identity))
+        self.assertIsNone(ch.f_get(xf.identity))
 
     def test_cb_called_if_buffer_empty(self):
         prom = hd.Promise()
         ch = chan()
-        c.async_get(ch, prom.deliver)
+        ch.f_get(prom.deliver)
         ch.t_put('val')
         self.assertEqual(prom.deref(), 'val')
 
@@ -1023,33 +998,8 @@ class TestAsyncGet(unittest.TestCase):
         prom = hd.Promise()
         ch = chan(1)
         ch.t_put('val')
-        c.async_get(ch, lambda x: prom.deliver([x, threading.get_ident()]))
+        ch.f_get(lambda x: prom.deliver([x, threading.get_ident()]))
         self.assertEqual(prom.deref(), ['val', threading.get_ident()])
-
-    def test_cb_called_on_different_thread_if_buffer_not_empty(self):
-        prom = hd.Promise()
-        ch = chan(1)
-        ch.t_put('val')
-        c.async_get(ch,
-                    lambda x: prom.deliver([x, threading.get_ident()]),
-                    on_caller=False)
-        val, thread_id = prom.deref()
-        self.assertEqual(val, 'val')
-        self.assertNotEqual(thread_id, threading.get_ident())
-
-    def test_cb_called_on_executor_if_buffer_not_empty(self):
-        prom = hd.Promise()
-        ch = chan(1)
-        executor = ThreadPoolExecutor(max_workers=1,
-                                      thread_name_prefix='executor')
-        ch.t_put('val')
-        c.async_get(ch,
-                    lambda x: prom.deliver([x, threading.current_thread()]),
-                    on_caller=False,
-                    executor=executor)
-        val, thread = prom.deref()
-        self.assertEqual(val, 'val')
-        self.assertTrue(thread.name.startswith('executor'))
 
 
 if __name__ == '__main__':

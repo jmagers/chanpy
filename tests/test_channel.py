@@ -343,7 +343,7 @@ class AbstractTestXform:
         async def main():
             ch = self.chan(1, xf.take_while(lambda x: x != 2))
             for i in range(4):
-                c.async_put(ch, i)
+                ch.f_put(i)
             ch.close()
             self.assertEqual(await a_list(ch), [0, 1])
             self.assertEqual(len(ch._puts), 0)
@@ -376,7 +376,7 @@ class AbstractTestXform:
     def test_close_does_not_flush_xform_with_pending_puts(self):
         ch = self.chan(1, xf.partition_all(2))
         for i in range(3):
-            c.async_put(ch, i)
+            ch.f_put(i)
         ch.close()
         self.assertEqual(b_list(ch), [(0, 1), (2,)])
 
@@ -548,8 +548,8 @@ class AbstractTestUnbufferedBlocking:
 
     def test_iter(self):
         ch = self.chan()
-        c.async_put(ch, 'one')
-        c.async_put(ch, 'two')
+        ch.f_put('one')
+        ch.f_put('two')
         ch.close()
         self.assertEqual(b_list(ch), ['one', 'two'])
 
@@ -665,7 +665,7 @@ class TestPromiseChan(unittest.TestCase):
 class AbstractTestAlts:
     def _confirm_chans_not_closed(self, *chs):
         for ch in chs:
-            c.async_put(ch, 'notClosed')
+            ch.f_put('notClosed')
             self.assertEqual(ch.t_get(), 'notClosed')
 
     def test_no_operations(self):
@@ -674,8 +674,8 @@ class AbstractTestAlts:
 
     def test_single_successful_get_on_initial_request(self):
         ch = self.chan()
-        c.async_put(ch, 'success')
-        c.async_put(ch, 'notClosed')
+        ch.f_put('success')
+        ch.f_put('notClosed')
         self.assertEqual(c.t_alts([ch]), ('success', ch))
         self.assertEqual(ch.t_get(), 'notClosed')
 
@@ -684,8 +684,8 @@ class AbstractTestAlts:
 
         def thread():
             time.sleep(0.1)
-            c.async_put(ch, 'success')
-            c.async_put(ch, 'notClosed')
+            ch.f_put('success')
+            ch.f_put('notClosed')
 
         threading.Thread(target=thread).start()
         self.assertEqual(c.t_alts([ch]), ('success', ch))
@@ -724,7 +724,7 @@ class AbstractTestUnbufferedAlts(AbstractTestAlts):
         successGetCh = self.chan()
         cancelGetCh = self.chan()
         cancelPutCh = self.chan()
-        c.async_put(successGetCh, 'success')
+        successGetCh.f_put('success')
         time.sleep(0.1)
         self.assertEqual(c.t_alts([cancelGetCh,
                                   successGetCh,
@@ -1007,8 +1007,8 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
         self.assertEqual(c.t_alts([ch, [xformCh, 'do not modify xform state']],
                                   priority=True),
                          ('altsValue', ch))
-        c.async_put(xformCh, 'secondTake')
-        c.async_put(xformCh, 'dropMe')
+        xformCh.f_put('secondTake')
+        xformCh.f_put('dropMe')
         self.assertEqual(b_list(xformCh), ['firstTake', 'secondTake'])
 
 

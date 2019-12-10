@@ -63,7 +63,7 @@ class Chan:
         flag = hd.create_flag()
         future = hd.FlagFuture(flag)
         handler = hd.FlagHandler(flag, hd.future_deliver_fn(future), wait)
-        ret = self._put(handler, val)
+        ret = self._p_put(handler, val)
         if ret is not None:
             asyncio.Future.set_result(future, ret[0])
         return future
@@ -72,24 +72,53 @@ class Chan:
         flag = hd.create_flag()
         future = hd.FlagFuture(flag)
         handler = hd.FlagHandler(flag, hd.future_deliver_fn(future), wait)
-        ret = self._get(handler)
+        ret = self._p_get(handler)
         if ret is not None:
             asyncio.Future.set_result(future, ret[0])
         return future
 
     def t_put(self, val, *, wait=True):
         prom = hd.Promise()
-        ret = self._put(hd.FnHandler(prom.deliver, wait), val)
+        ret = self._p_put(hd.FnHandler(prom.deliver, wait), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
     def t_get(self, *, wait=True):
         prom = hd.Promise()
-        ret = self._get(hd.FnHandler(prom.deliver, wait))
+        ret = self._p_get(hd.FnHandler(prom.deliver, wait))
         if ret is not None:
             return ret[0]
         return prom.deref()
+
+    def f_put(self, val, f=lambda _: None):
+        """Asynchronously puts val onto channel and calls f when complete.
+
+        Args:
+            val: A value to put onto channel.
+            f: An optional non-blocking function accepting a bool. Will be
+                passed False if channel is already closed or True if not.
+
+        Returns: False if channel is already closed or True if not.
+        """
+        ret = self._p_put(hd.FnHandler(f), val)
+        if ret is None:
+            return True
+        f(ret[0])
+        return ret[0]
+
+    def f_get(self, f):
+        """Asynchronously gets a value from channel and calls f with it.
+
+        Args:
+            f: A non-blocking function accepting a single argument. Will be
+                passed the value taken from the channel or None if channel is
+                exhausted.
+        """
+        ret = self._p_get(hd.FnHandler(f))
+        if ret is None:
+            return
+        f(ret[0])
 
     def offer(self, val):
         return self.t_put(val, wait=False)
@@ -102,7 +131,7 @@ class Chan:
             self._cleanup()
             self._close()
 
-    def _put(self, handler, val):
+    def _p_put(self, handler, val):
         if val is None:
             raise TypeError('item cannot be None')
         with self._lock:
@@ -140,7 +169,7 @@ class Chan:
                 raise MaxQueueSize
             self._puts.append((handler, val))
 
-    def _get(self, handler):
+    def _p_get(self, handler):
         with self._lock:
             self._cleanup()
 

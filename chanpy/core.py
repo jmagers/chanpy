@@ -129,9 +129,9 @@ def _alts(flag, deliver_fn, ports, priority, default):
     # Start ops
     for ch, op in ops.items():
         if op['type'] == 'get':
-            ret = ch._get(create_handler(ch))
+            ret = ch._p_get(create_handler(ch))
         elif op['type'] == 'put':
-            ret = ch._put(create_handler(ch), op['value'])
+            ret = ch._p_put(create_handler(ch), op['value'])
         if ret is not None:
             return ret[0], ch
 
@@ -142,6 +142,7 @@ def _alts(flag, deliver_fn, ports, priority, default):
                 return default, 'default'
 
 
+# TODO: Move the alt/alts function definitions into the channel module
 # TODO: Create an alt function that is variadic
 # TODO: Possibly remove a_ prefixes
 def a_alts(ports, *, priority=False, default=_Undefined):
@@ -267,43 +268,6 @@ def thread_call(f, executor=None):
     else:
         executor.submit(wrapper)
     return ch
-
-
-# TODO: Change this to use loop.call_soon_threadsafe instead of thread_call
-def async_put(ch, val, f=lambda _: None, *, on_caller=True, executor=None):
-    """Asynchronously puts val onto ch and calls f when complete.
-
-    Args:
-        ch: A channel to put val onto.
-        val: A value to put onto ch.
-        f: An optional function accepting a bool. Will be passed False if ch is
-            already closed or True if not.
-        on_caller: An optional bool. If true, f will be executed on the calling
-            thread if the put completes immediately. If false, f will always be
-            be executed on a separate thread.
-        executor: An optional ThreadPoolExecutor to submit f to.
-
-    Returns: False if channel is already closed or True if not.
-    """
-    ret = ch._put(_hd.FnHandler(f), val)
-    if ret is None:
-        return True
-    elif on_caller:
-        f(ret[0])
-    else:
-        thread_call(lambda: f(ret[0]), executor)
-    return ret[0]
-
-
-# TODO: Change this to use loop.call_soon_threadsafe instead of thread_call
-def async_get(ch, f, *, on_caller=True, executor=None):
-    ret = ch._get(_hd.FnHandler(f))
-    if ret is None:
-        return
-    elif on_caller:
-        f(ret[0])
-    else:
-        thread_call(lambda: f(ret[0]), executor)
 
 
 def to_iter(ch):
