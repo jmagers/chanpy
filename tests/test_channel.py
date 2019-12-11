@@ -6,7 +6,6 @@ import time
 import unittest
 import chanpy as c
 from chanpy import buffers, chan, xf
-from chanpy.channel import Chan
 
 
 def b_list(ch):
@@ -463,7 +462,7 @@ class TestBufferedNonBlockingChan(unittest.TestCase,
                                   AbstractTestBufferedNonblocking):
     @staticmethod
     def chan(n):
-        return Chan(c.buffer(n))
+        return chan(c.buffer(n))
 
 
 class TestChan(unittest.TestCase):
@@ -563,7 +562,7 @@ class TestUnbufferedBlockingChan(unittest.TestCase,
                                  AbstractTestUnbufferedBlocking):
     @staticmethod
     def chan():
-        return Chan()
+        return chan()
 
 
 class AbstractTestUnbufferedNonblocking:
@@ -608,7 +607,7 @@ class TestUnbufferedNonblockingChan(unittest.TestCase,
                                     AbstractTestUnbufferedNonblocking):
     @staticmethod
     def chan():
-        return Chan()
+        return chan()
 
 
 class TestPromiseChan(unittest.TestCase):
@@ -1011,13 +1010,13 @@ class AbstractTestBufferedAlts(AbstractTestAlts):
 class TestUnbufferedAltsChan(unittest.TestCase, AbstractTestUnbufferedAlts):
     @staticmethod
     def chan():
-        return Chan()
+        return chan()
 
 
 class TestBufferedAltsChan(unittest.TestCase, AbstractTestBufferedAlts):
     @staticmethod
     def chan(n=1, xform=xf.identity):
-        return Chan(c.buffer(n), xform)
+        return chan(c.buffer(n), xform)
 
 
 class TestAltsThreads(unittest.TestCase):

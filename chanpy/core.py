@@ -2,9 +2,8 @@ import asyncio as _asyncio
 import contextlib as _contextlib
 import random as _random
 import threading as _threading
-from numbers import Number as _Number
 from . import buffers as _bufs
-from .channel import alts, b_alts, alt, b_alt, Chan as _Chan
+from .channel import chan, alts, b_alts, alt, b_alt, QueueSizeExceeded
 from . import xf
 
 
@@ -52,35 +51,6 @@ def is_unblocking_buffer(buf):
     return isinstance(buf, _bufs.UnblockingBufferMixin)
 
 
-def chan(buf_or_n=None, xform=None, ex_handler=None):
-    """Returns a CSP channel with optional buffer, transducer, and ex_handler.
-
-    Args:
-        buf_or_n: An optional buffer that may be expressed as an int > 0.
-            If it's an int, a fixed buffer of that capacity will be used.
-            If None, an unbuffered channel is returned.
-        xform: An optional transducer used to transform elements put onto the
-            channel. buf_or_n must not be None if transducer is provided.
-        ex_handler: An optional function to handle exceptions raised during
-            transformation. Must accept a single parameter (the exception
-            raised). Any non-None return value will be put onto
-            the buffer.
-
-    Raises:
-        TypeError: If an xform or ex_handler was provided without a buffer.
-        ValueError: buf_or_n is a number <= 0.
-
-    """
-    if buf_or_n is None:
-        if xform is not None:
-            raise TypeError('unbuffered channels cannot have an xform')
-        if ex_handler is not None:
-            raise TypeError('unbuffered channels cannot have an ex_handler')
-        return _Chan()
-    buf = buffer(buf_or_n) if isinstance(buf_or_n, _Number) else buf_or_n
-    return _Chan(buf, xform, ex_handler)
-
-
 def promise_chan(xform=None, ex_handler=None):
     """Returns a channel that emits the same value forever.
 
@@ -98,7 +68,7 @@ def promise_chan(xform=None, ex_handler=None):
 
 def is_chan(ch):
     """Returns True if ch is a channel."""
-    return isinstance(ch, _Chan)
+    return isinstance(ch, chan)
 
 
 # Thread local data
