@@ -16,8 +16,8 @@ def buffer(n):
 
     Puts to channels with this buffer will block if capacity is reached.
 
-    Raises:
-        ValueError: If n <= 0.
+    Args:
+        n: A positive number.
     """
     return _bufs.FixedBuffer(n)
 
@@ -28,8 +28,8 @@ def dropping_buffer(n):
     Puts to channels with this buffer will appear successful after the capacity
     is reached but will not be added to the buffer.
 
-    Raises:
-        ValueError: If n <= 0.
+    Args:
+        n: A positive number.
     """
     return _bufs.DroppingBuffer(n)
 
@@ -40,8 +40,8 @@ def sliding_buffer(n):
     Puts to channels with this buffer will complete successfully after the
     capacity is reached but will evict the oldest element in the buffer.
 
-    Raises:
-        ValueError: If n <= 0.
+    Args:
+        n: A positive number.
     """
     return _bufs.SlidingBuffer(n)
 
@@ -260,14 +260,16 @@ def transduce(xform, rf, init, ch=_Undefined):
     Asynchronously reduces a channel with a transformation.
 
     Asynchronously collects values from ch and reduces them using a transformed
-    reducing function. The transformed reducing function == xform(rf).
+    reducing function equal to xform(rf). See reduce() for more information on
+    reduction. After the transformed reducing function has received all input
+    it will be called once more with a single argument, the result thus far.
 
     Args:
         xform: A transducer.
         rf: A reducing function accepting both 1 and 2 arguments. If init is
             not provided then rf must return a value to be used as init when
-            invoked with 0 arguments.
-        init: An optional initial value for reduction.
+            called. with 0 arguments.
+        init: An optional initial value.
         ch: A channel to get values from.
 
     Returns: A channel containing the result of the reduction.

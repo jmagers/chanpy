@@ -67,7 +67,7 @@ class chan:
     directly or indirectly through a transformation.
 
     Args:
-        buf_or_n: An optional buffer that may be expressed as a positive int.
+        buf_or_n: An optional buffer that may be expressed as a positive number.
             If it's an int, a fixed buffer of that capacity will be used.
             If None, the channel will be unbuffered.
         xform: An optional transducer for transforming elements put onto the
@@ -78,7 +78,6 @@ class chan:
 
     Raises:
         TypeError: If xform or ex_handler is provided without a buffer.
-        ValueError: buf_or_n is a number <= 0.
 
     """
     def __init__(self, buf_or_n=None, xform=None, ex_handler=None):

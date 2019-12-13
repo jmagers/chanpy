@@ -45,9 +45,13 @@ class TestPartitionAll(unittest.TestCase):
         with self.assertRaises(ValueError):
             xf.partition_all(1, -1)
 
-    def test_reduced(self):
+    def test_reduced_without_step(self):
         xform = xf.comp(xf.partition_all(1), xf.take(2))
         self.assertEqual(list(xf.xiter(xform, range(12))), [(0,), (1,)])
+
+    def test_reduced_with_step(self):
+        xform = xf.comp(xf.partition_all(2, 1), xf.take(1))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [(1, 2)])
 
     def test_arity_zero(self):
         self.assertEqual(xf.partition_all(1)(lambda: 'success')(), 'success')
@@ -679,6 +683,10 @@ class TestReductions(unittest.TestCase):
                         xf.take(1))
         self.assertEqual(list(xf.xiter(xform, [])), ['success'])
 
+    def test_reductions_no_init(self):
+        xform = xf.reductions(xf.multi_arity(lambda: 100, None, sum_rf))
+        self.assertEqual(list(xf.xiter(xform, [1, 2])), [100, 101, 103])
+
     def test_reductions_reduced(self):
         xform = xf.comp(xf.reductions(lambda x, y: x + y, 1), xf.take(3))
         self.assertEqual(list(xf.xiter(xform, [2, 3, 4, 5])), [1, 3, 6])
@@ -703,8 +711,8 @@ class TestInterpose(unittest.TestCase):
         self.assertEqual(list(xf.xiter(xform, [])), [])
 
     def test_reduced(self):
-        xform = xf.comp(xf.interpose('s'), xf.take(3))
-        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [1, 's', 2])
+        xform = xf.comp(xf.interpose('s'), xf.take(4))
+        self.assertEqual(list(xf.xiter(xform, [1, 2, 3])), [1, 's', 2, 's'])
 
     def test_arity_zero(self):
         self.assertEqual(xf.interpose('s')(lambda: 'success')(), 'success')
