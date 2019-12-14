@@ -5,7 +5,6 @@ import threading
 from collections import deque
 from numbers import Number
 from . import buffers as bufs
-from . import handlers as hd
 from . import xf
 
 
@@ -15,11 +14,124 @@ MAX_QUEUE_SIZE = 1024
 class QueueSizeExceeded(Exception):
     """Maximum pending channel operations exceeded.
 
-    Raised when too many channel operations have been enqueued on the channel.
+    Raised when too many operations have been enqueued on a channel.
     Consider using a windowing buffer to prevent enqueuing too many puts or
     altering your design to have less asynchronous processes access the channel
     at once.
     """
+
+
+class Promise:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._value = None
+        self._is_realized = False
+        self._realized = threading.Condition(self._lock)
+
+    def deliver(self, value):
+        with self._lock:
+            if self._is_realized:
+                return False
+            self._value = value
+            self._is_realized = True
+            self._realized.notify_all()
+            return True
+
+    def deref(self):
+        with self._lock:
+            self._realized.wait_for(lambda: self._is_realized)
+            return self._value
+
+
+class FlagFuture(asyncio.Future):
+    def __init__(self, flag):
+        self.__flag = flag
+        self.__result = None
+        super().__init__(loop=asyncio.get_running_loop())
+
+    def set_result(self, result):
+        raise AssertionError('cannot call set_result on a future provided by '
+                             'a channel')
+
+    def set_exception(self, exception):
+        raise AssertionError('cannot call set_exception on a future provided '
+                             'by a channel')
+
+    def cancel(self):
+        with self.__flag['lock']:
+            if self.__flag['is_active']:
+                self.__flag['is_active'] = False
+            elif not super().done():
+                # This case is when value has been committed but
+                # future hasn't been set because call_soon_threadsafe()
+                # callback hasn't been invoked yet
+                super().set_result(self.__result)
+        return super().cancel()
+
+
+def future_deliver_fn(future):
+    def set_result(result):
+        try:
+            asyncio.Future.set_result(future, result)
+        except asyncio.InvalidStateError:
+            assert future.result() is result
+
+    def deliver(result):
+        future._FlagFuture__result = result
+        future.get_loop().call_soon_threadsafe(set_result, result)
+
+    return deliver
+
+
+def create_flag():
+    return {'lock': threading.Lock(), 'is_active': True}
+
+
+class HandlerManagerMixin:
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, e_type, e_val, traceback):
+        self.release()
+
+
+class FnHandler(HandlerManagerMixin):
+    def __init__(self, cb, is_waitable=True):
+        self._cb = cb
+        self.is_waitable = is_waitable
+        self.lock_id = 0
+        self.is_active = True
+
+    def acquire(self):
+        return True
+
+    def release(self):
+        pass
+
+    def commit(self):
+        return self._cb
+
+
+class FlagHandler(HandlerManagerMixin):
+    def __init__(self, flag, cb, is_waitable=True):
+        self._flag = flag
+        self._cb = cb
+        self.is_waitable = is_waitable
+        self.lock_id = id(flag)
+
+    @property
+    def is_active(self):
+        return self._flag['is_active']
+
+    def acquire(self):
+        return self._flag['lock'].acquire()
+
+    def release(self):
+        self._flag['lock'].release()
+
+    def commit(self):
+        self._flag['is_active'] = False
+        return self._cb
 
 
 @contextlib.contextmanager
@@ -51,13 +163,19 @@ class chan:
     transducer.
 
     Channels may be used by threads with or without a running asyncio event
-    loop. The get and put methods provide direct support for asyncio by
-    returning awaitables whereas b_get and b_put provide blocking alternatives.
-    Producers and consumers need not be of the same type. For example, a value
-    placed onto the channel with put can be taken by a call to b_get from a
-    separate thread.
+    loop. The get, put, and alt functions provide direct support for asyncio by
+    returning awaitables. Channels additionally can be used as asynchronous
+    generators when used with async for. The b_get, b_put, b_alt, and to_iter
+    functions provide blocking alternatives for threads which do not wish to
+    use asyncio. Channels can even be used with callback based code via the
+    f_put and f_get methods. It's important to note that producers and
+    consumers of the channel need not be of the same type. For example, a value
+    placed onto the channel with put (asyncio) can be taken by a call to
+    b_get (blocking) from a separate thread.
 
     A select/alt feature is also available via the alt and b_alt functions.
+    This feature allows one to attempt many operations on a channel at once
+    and only have the first operation to complete actually committed.
     See alts() for more information.
 
     Once closed, future puts will be unsuccessful but any pending puts will
@@ -139,9 +257,9 @@ class chan:
             QueueSizeExceeded: If the channel has too many pending put
                 operations.
         """
-        flag = hd.create_flag()
-        future = hd.FlagFuture(flag)
-        handler = hd.FlagHandler(flag, hd.future_deliver_fn(future), wait)
+        flag = create_flag()
+        future = FlagFuture(flag)
+        handler = FlagHandler(flag, future_deliver_fn(future), wait)
         ret = self._p_put(handler, val)
         if ret is not None:
             asyncio.Future.set_result(future, ret[0])
@@ -165,9 +283,9 @@ class chan:
             QueueSizeExceeded: If the channel has too many pending get
                 operations.
         """
-        flag = hd.create_flag()
-        future = hd.FlagFuture(flag)
-        handler = hd.FlagHandler(flag, hd.future_deliver_fn(future), wait)
+        flag = create_flag()
+        future = FlagFuture(flag)
+        handler = FlagHandler(flag, future_deliver_fn(future), wait)
         ret = self._p_get(handler)
         if ret is not None:
             asyncio.Future.set_result(future, ret[0])
@@ -175,16 +293,16 @@ class chan:
 
     def b_put(self, val, *, wait=True):
         """Same as put() except it blocks instead of returning an awaitable."""
-        prom = hd.Promise()
-        ret = self._p_put(hd.FnHandler(prom.deliver, wait), val)
+        prom = Promise()
+        ret = self._p_put(FnHandler(prom.deliver, wait), val)
         if ret is not None:
             return ret[0]
         return prom.deref()
 
     def b_get(self, *, wait=True):
         """Same as get() except it blocks instead of returning an awaitable."""
-        prom = hd.Promise()
-        ret = self._p_get(hd.FnHandler(prom.deliver, wait))
+        prom = Promise()
+        ret = self._p_get(FnHandler(prom.deliver, wait))
         if ret is not None:
             return ret[0]
         return prom.deref()
@@ -204,7 +322,7 @@ class chan:
             QueueSizeExceeded: If the channel has too many pending put
                 operations.
         """
-        ret = self._p_put(hd.FnHandler(f), val)
+        ret = self._p_put(FnHandler(f), val)
         if ret is None:
             return True
         f(ret[0])
@@ -222,7 +340,7 @@ class chan:
             QueueSizeExceeded: If the channel has too many pending get
                 operations.
         """
-        ret = self._p_get(hd.FnHandler(f))
+        ret = self._p_get(FnHandler(f))
         if ret is None:
             return
         f(ret[0])
@@ -240,6 +358,21 @@ class chan:
         with self._lock:
             self._cleanup()
             self._close()
+
+    async def __aiter__(self):
+        while True:
+            value = await self.get()
+            if value is None:
+                break
+            yield value
+
+    def to_iter(self):
+        """Returns an iterator over the channel's values."""
+        while True:
+            val = self.b_get()
+            if val is None:
+                break
+            yield val
 
     def _p_put(self, handler, val):
         """Commits or enqueues a put operation to the channel.
@@ -296,7 +429,7 @@ class chan:
                             taker.commit()(val)
                             return True,
 
-            if not handler.is_blockable:
+            if not handler.is_waitable:
                 return self._fail_op(handler, False)
 
             # Attempt to enqueue the operation
@@ -363,7 +496,7 @@ class chan:
                             putter.commit()(True)
                             return val,
 
-            if self._is_closed or not handler.is_blockable:
+            if self._is_closed or not handler.is_waitable:
                 return self._fail_op(handler, None)
 
             # Attempt to enqueue the operation
@@ -430,44 +563,37 @@ class chan:
                     taker.commit()(None)
         self._takes.clear()
 
-    async def __aiter__(self):
-        while True:
-            value = await self.get()
-            if value is None:
-                break
-            yield value
-
 
 class _Undefined:
     """A default parameter value that a user could never pass in."""
 
 
-def _alts(flag, deliver_fn, ports, priority, default):
-    ports = list(ports)
-    if len(ports) == 0:
+def _alts(flag, deliver_fn, ops, priority, default):
+    ops = list(ops)
+    if len(ops) == 0:
         raise ValueError('alts must have at least one channel operation')
     if not priority:
-        random.shuffle(ports)
+        random.shuffle(ops)
 
-    ops = {}
+    ch_ops = {}
 
-    # Parse ports into ops
-    for p in ports:
+    # Parse ops into ch_ops
+    for raw_op in ops:
         try:
-            ch, val = p
+            ch, val = raw_op
             op = {'type': 'put', 'value': val}
         except TypeError:
-            ch = p
+            ch = raw_op
             op = {'type': 'get'}
-        if ops.get(ch, op)['type'] != op['type']:
+        if ch_ops.get(ch, op)['type'] != op['type']:
             raise ValueError('cannot get and put to same channel')
-        ops[ch] = op
+        ch_ops[ch] = op
 
     def create_handler(ch):
-        return hd.FlagHandler(flag, lambda val: deliver_fn((val, ch)))
+        return FlagHandler(flag, lambda val: deliver_fn((val, ch)))
 
     # Start ops
-    for ch, op in ops.items():
+    for ch, op in ch_ops.items():
         if op['type'] == 'get':
             ret = ch._p_get(create_handler(ch))
         elif op['type'] == 'put':
@@ -482,25 +608,24 @@ def _alts(flag, deliver_fn, ports, priority, default):
                 return default, 'default'
 
 
-def alts(ports, *, priority=False, default=_Undefined):
-    """Returns an awaitable representing the first channel operation to complete.
+def alts(ops, *, priority=False, default=_Undefined):
+    """Returns an awaitable representing the first and only channel operation to finish.
 
     Accepts an iterable of operations that either get from or put to a channel
     and commits only one of them. If no default is provided then only the first
-    ports operation to complete will be committed. If default is provided and
-    none of the ports operations complete immediately then none of the ports
-    operations will be committed and default will instead be used to complete
-    the returned awaitable.
+    op to finish will be committed. If default is provided and none of the ops
+    finish immediately then no operation will be committed and default will
+    instead be used to complete the returned awaitable.
 
     Args:
-        ports: An iterable of operations that either get from or put to a
-            channel. A get operation is represented as simply the channel to
-            get from. A put operations is represented as an iterable of the form
-            [channel, val] where val is the item to put onto the channel.
+        ops: An iterable of operations that either get from or put to a channel.
+            A get operation is represented as simply a channel to get from.
+            A put operation is represented as an iterable of the form
+            [channel, val], where val is an item to put onto the channel.
         priority: An optional bool. If true, operations will be tried in order.
             If false, operations will be tried in random order.
-        default: An optional value to use in case none of the operations in
-            ports complete immediately.
+        default: An optional value to use in case no operation finishes
+            immediately.
 
     Returns: An awaitable that evaluates to a tuple of the form (val, ch).
         If default is not provided then val will be what the first successful
@@ -514,27 +639,26 @@ def alts(ports, *, priority=False, default=_Undefined):
             to the same channel.
         RuntimeError: If the calling thread has no running event loop.
     """
-    flag = hd.create_flag()
-    future = hd.FlagFuture(flag)
-    ret = _alts(flag, hd.future_deliver_fn(future), ports,
-                priority, default)
+    flag = create_flag()
+    future = FlagFuture(flag)
+    ret = _alts(flag, future_deliver_fn(future), ops, priority, default)
     if ret is not None:
         asyncio.Future.set_result(future, ret)
     return future
 
 
-def b_alts(ports, *, priority=False, default=_Undefined):
+def b_alts(ops, *, priority=False, default=_Undefined):
     """Same as alts() except it blocks instead of returning an awaitable."""
-    prom = hd.Promise()
-    ret = _alts(hd.create_flag(), prom.deliver, ports, priority, default)
+    prom = Promise()
+    ret = _alts(create_flag(), prom.deliver, ops, priority, default)
     return prom.deref() if ret is None else ret
 
 
-def alt(*ports, priority=False, default=_Undefined):
+def alt(*ops, priority=False, default=_Undefined):
     """A variadic version of alts()."""
-    return alts(ports, priority=priority, default=default)
+    return alts(ops, priority=priority, default=default)
 
 
-def b_alt(*ports, priority=False, default=_Undefined):
+def b_alt(*ops, priority=False, default=_Undefined):
     """A variadic version of b_alts()."""
-    return b_alts(ports, priority=priority, default=default)
+    return b_alts(ops, priority=priority, default=default)

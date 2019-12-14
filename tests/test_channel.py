@@ -9,7 +9,7 @@ from chanpy import buffers, chan, xf
 
 
 def b_list(ch):
-    return list(c.to_iter(ch))
+    return list(ch.to_iter())
 
 
 async def a_list(ch):

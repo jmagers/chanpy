@@ -150,15 +150,6 @@ def thread_call(f, executor=None):
     return ch
 
 
-def to_iter(ch):
-    """Returns an iterator over the values from the provided channel."""
-    while True:
-        val = ch.b_get()
-        if val is None:
-            break
-        yield val
-
-
 def go(coro):
     """Adds a coroutine as a task to the current event loop.
 

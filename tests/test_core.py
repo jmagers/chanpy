@@ -5,7 +5,8 @@ import threading
 import time
 import unittest
 import chanpy as c
-from chanpy import chan, xf, handlers as hd
+from chanpy import chan, xf
+from chanpy.channel import Promise
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -954,13 +955,13 @@ class TestAsyncPut(unittest.TestCase):
 
     def test_cb_called_if_buffer_full(self):
         ch = chan()
-        prom = hd.Promise()
+        prom = Promise()
         ch.f_put('val', prom.deliver)
         self.assertEqual(ch.b_get(), 'val')
         self.assertIs(prom.deref(), True)
 
     def test_cb_called_on_caller_if_buffer_not_full(self):
-        prom = hd.Promise()
+        prom = Promise()
         chan(1).f_put('val',
                       lambda x: prom.deliver([x, threading.get_ident()]))
         self.assertEqual(prom.deref(), [True, threading.get_ident()])
@@ -988,14 +989,14 @@ class TestAsyncGet(unittest.TestCase):
         self.assertIsNone(ch.f_get(xf.identity))
 
     def test_cb_called_if_buffer_empty(self):
-        prom = hd.Promise()
+        prom = Promise()
         ch = chan()
         ch.f_get(prom.deliver)
         ch.b_put('val')
         self.assertEqual(prom.deref(), 'val')
 
     def test_cb_called_on_caller_if_buffer_not_empty(self):
-        prom = hd.Promise()
+        prom = Promise()
         ch = chan(1)
         ch.b_put('val')
         ch.f_get(lambda x: prom.deliver([x, threading.get_ident()]))
