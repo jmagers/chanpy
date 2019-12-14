@@ -6,6 +6,7 @@ import time
 import unittest
 import chanpy as c
 from chanpy import buffers, chan, xf
+from chanpy.channel import Promise
 
 
 def b_list(ch):
@@ -1029,6 +1030,75 @@ class TestAltsThreads(unittest.TestCase):
         ch = chan()
         self.assertEqual(c.b_alts([ch], default='success'),
                          ('success', 'default'))
+
+
+class TestFPut(unittest.TestCase):
+    def setUp(self):
+        c.set_loop(asyncio.new_event_loop())
+
+    def tearDown(self):
+        c.get_loop().close()
+        c.set_loop(None)
+
+    def test_return_true_if_buffer_not_full(self):
+        self.assertIs(chan(1).f_put('val'), True)
+
+    def test_returns_true_if_buffer_full_not_closed(self):
+        self.assertIs(chan().f_put('val'), True)
+
+    def test_return_false_if_closed(self):
+        ch = chan()
+        ch.close()
+        self.assertIs(ch.f_put('val'), False)
+
+    def test_cb_called_if_buffer_full(self):
+        ch = chan()
+        prom = Promise()
+        ch.f_put('val', prom.deliver)
+        self.assertEqual(ch.b_get(), 'val')
+        self.assertIs(prom.deref(), True)
+
+    def test_cb_called_on_caller_if_buffer_not_full(self):
+        prom = Promise()
+        chan(1).f_put('val',
+                      lambda x: prom.deliver([x, threading.get_ident()]))
+        self.assertEqual(prom.deref(), [True, threading.get_ident()])
+
+
+class TestFGet(unittest.TestCase):
+    def setUp(self):
+        c.set_loop(asyncio.new_event_loop())
+
+    def tearDown(self):
+        c.get_loop().close()
+        c.set_loop(None)
+
+    def test_return_none_if_buffer_not_empty(self):
+        ch = chan(1)
+        ch.b_put('val')
+        self.assertIsNone(ch.f_get(xf.identity))
+
+    def test_return_none_if_buffer_empty(self):
+        self.assertIsNone(chan().f_get(xf.identity))
+
+    def test_return_none_if_closed(self):
+        ch = chan()
+        ch.close()
+        self.assertIsNone(ch.f_get(xf.identity))
+
+    def test_cb_called_if_buffer_empty(self):
+        prom = Promise()
+        ch = chan()
+        ch.f_get(prom.deliver)
+        ch.b_put('val')
+        self.assertEqual(prom.deref(), 'val')
+
+    def test_cb_called_on_caller_if_buffer_not_empty(self):
+        prom = Promise()
+        ch = chan(1)
+        ch.b_put('val')
+        ch.f_get(lambda x: prom.deliver([x, threading.get_ident()]))
+        self.assertEqual(prom.deref(), ['val', threading.get_ident()])
 
 
 class TestDroppingBuffer(unittest.TestCase):

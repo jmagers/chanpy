@@ -186,7 +186,7 @@ class chan:
 
     Args:
         buf_or_n: An optional buffer that may be expressed as a positive number.
-            If it's an int, a fixed buffer of that capacity will be used.
+            If it's a number, a fixed buffer of that capacity will be used.
             If None, the channel will be unbuffered.
         xform: An optional transducer for transforming elements put onto the
             channel. buf_or_n must not be None if transducer is provided.

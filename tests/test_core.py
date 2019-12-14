@@ -6,7 +6,6 @@ import time
 import unittest
 import chanpy as c
 from chanpy import chan, xf
-from chanpy.channel import Promise
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -886,7 +885,7 @@ class TestTransduce(unittest.TestCase):
 
 
 class TestMerge(unittest.TestCase):
-    def test_merge(self):
+    def test_merge_unbuffered(self):
         async def main():
             src1, src2 = chan(), chan()
             m = c.merge([src1, src2], 2)
@@ -895,6 +894,31 @@ class TestMerge(unittest.TestCase):
             src1.close()
             src2.close()
             self.assertEqual([x async for x in m], ['src1', 'src2'])
+
+        asyncio.run(main())
+
+
+class TestMap(unittest.TestCase):
+    def test_map_unbuffered(self):
+        async def main():
+            letter_ch = c.to_chan(['a', 'b', 'c', 'd', 'e'])
+            number_ch = c.to_chan(['1', '2', '3'])
+            result_ch = c.map(lambda x, y: x + y, [letter_ch, number_ch])
+            self.assertEqual(await a_list(result_ch), ['a1', 'b2', 'c3'])
+            self.assertEqual(await a_list(letter_ch), ['e'])
+
+        asyncio.run(main())
+
+    def test_map_buffered(self):
+        async def main():
+            letter_ch = c.to_chan(['a', 'b', 'c', 'd', 'e'])
+            number_ch = c.to_chan(['1', '2', '3'])
+            result_ch = c.map(lambda x, y: x + y,
+                              [letter_ch, number_ch],
+                              c.sliding_buffer(2))
+            await asyncio.sleep(0.1)
+            self.assertEqual(await a_list(result_ch), ['b2', 'c3'])
+            self.assertEqual(await a_list(letter_ch), ['e'])
 
         asyncio.run(main())
 
@@ -932,75 +956,6 @@ class TestSplit(unittest.TestCase):
             self.assertEqual(await a_list(f_ch), [1, 3, 5])
 
         asyncio.run(main())
-
-
-class TestAsyncPut(unittest.TestCase):
-    def setUp(self):
-        c.set_loop(asyncio.new_event_loop())
-
-    def tearDown(self):
-        c.get_loop().close()
-        c.set_loop(None)
-
-    def test_return_true_if_buffer_not_full(self):
-        self.assertIs(chan(1).f_put('val'), True)
-
-    def test_returns_true_if_buffer_full_not_closed(self):
-        self.assertIs(chan().f_put('val'), True)
-
-    def test_return_false_if_closed(self):
-        ch = chan()
-        ch.close()
-        self.assertIs(ch.f_put('val'), False)
-
-    def test_cb_called_if_buffer_full(self):
-        ch = chan()
-        prom = Promise()
-        ch.f_put('val', prom.deliver)
-        self.assertEqual(ch.b_get(), 'val')
-        self.assertIs(prom.deref(), True)
-
-    def test_cb_called_on_caller_if_buffer_not_full(self):
-        prom = Promise()
-        chan(1).f_put('val',
-                      lambda x: prom.deliver([x, threading.get_ident()]))
-        self.assertEqual(prom.deref(), [True, threading.get_ident()])
-
-
-class TestAsyncGet(unittest.TestCase):
-    def setUp(self):
-        c.set_loop(asyncio.new_event_loop())
-
-    def tearDown(self):
-        c.get_loop().close()
-        c.set_loop(None)
-
-    def test_return_none_if_buffer_not_empty(self):
-        ch = chan(1)
-        ch.b_put('val')
-        self.assertIsNone(ch.f_get(xf.identity))
-
-    def test_return_none_if_buffer_empty(self):
-        self.assertIsNone(chan().f_get(xf.identity))
-
-    def test_return_none_if_closed(self):
-        ch = chan()
-        ch.close()
-        self.assertIsNone(ch.f_get(xf.identity))
-
-    def test_cb_called_if_buffer_empty(self):
-        prom = Promise()
-        ch = chan()
-        ch.f_get(prom.deliver)
-        ch.b_put('val')
-        self.assertEqual(prom.deref(), 'val')
-
-    def test_cb_called_on_caller_if_buffer_not_empty(self):
-        prom = Promise()
-        ch = chan(1)
-        ch.b_put('val')
-        ch.f_get(lambda x: prom.deliver([x, threading.get_ident()]))
-        self.assertEqual(prom.deref(), ['val', threading.get_ident()])
 
 
 if __name__ == '__main__':

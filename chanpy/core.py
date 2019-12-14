@@ -341,7 +341,8 @@ def merge(chs, buf_or_n=None):
 
     Args:
         chs: An iterable of source channels.
-        buf_or_n: An optional buffer or int >= 0. See chan().
+        buf_or_n: An optional buffer to use with the returned channel.
+            Can also be represented as a positive number. See chan().
     """
     to_ch = chan(buf_or_n)
 
@@ -354,6 +355,69 @@ def merge(chs, buf_or_n=None):
             else:
                 await to_ch.put(val)
         to_ch.close()
+
+    go(proc())
+    return to_ch
+
+
+def _every(ops):
+    """Returns a channel that contains a tuple of the operation results.
+
+    Args:
+        ops: An iterable of channel operations. See alts().
+    """
+    ops = tuple(ops)
+    lock = _threading.Lock()
+    results = [None] * len(ops)
+    remaining_results = len(ops)
+    to_ch = chan(1)
+
+    def setting_result(index):
+        def set_result(result):
+            nonlocal remaining_results
+            with lock:
+                results[index] = result
+                remaining_results -= 1
+                if remaining_results == 0:
+                    to_ch.b_put(tuple(results))
+        return set_result
+
+    for i, op in enumerate(ops):
+        try:
+            ch, val = op
+        except TypeError:
+            op.f_get(setting_result(i))
+        else:
+            ch.f_put(val, setting_result(i))
+
+    return to_ch
+
+
+def map(f, chs, buf_or_n=None):
+    """Repeatedly takes a value from each channel and applies f.
+
+    Asynchronously takes one value per source channel and passes the resulting
+    list of values as positional arguments to f. Each return value of f will
+    be put onto the returned channel. The returned channel closes if any one
+    of the source channels closes.
+
+    Args:
+        f: A non-blocking function accepting len(chs) positional arguments.
+        chs: An iterable of source channels.
+        buf_or_n: An optional buffer to use with the returned channel.
+            Can also be represented as a positive number. See chan().
+
+    Returns: A channel containing the return values of f.
+    """
+    to_ch = chan(buf_or_n)
+
+    async def proc():
+        while True:
+            args = await _every(chs).get()
+            if None in args:
+                to_ch.close()
+                break
+            await to_ch.put(f(*args))
 
     go(proc())
     return to_ch
