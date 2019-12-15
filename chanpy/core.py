@@ -1,3 +1,36 @@
+"""Core functions for working with channels.
+
+This module aims to bring the best features of Clojure's core.async library to
+Python.
+
+The center around any CSP library are channels. ChanPy's channels have full
+support for use with asyncio coroutines, callback based code, and
+multi-threaded designs. The functions in this module are designed to primarily
+accept and produce channels and by doing so, can be used almost identically
+with each of the aforementioned styles. See chan for more details about
+channels.
+
+Like core.async, ChanPy channels have direct support for transformations via
+transducers. The transducers module provides many transducers as well as
+functions to help create and use them.
+
+Another very valuable feature from core.async is the ability to cheaply create
+asynchronous "processes" using go blocks. ChanPy, like aiochan, is able to do
+something similar by leveraging Python's own asyncio library. Channels can
+easily be used from within coroutines which can then be added as tasks to an
+event loop. Chanpy additionally offers ways for these tasks to be added from
+threads without a running event loop.
+
+An important thing to note about this module is that unless explicitly stated
+otherwise, any function involving asynchronous work should be assumed to
+require an asyncio event loop. Many of these functions leverage the use of an
+event loop for the efficiency reasons stated earlier. Threads with a running
+event loop will be able to directly call these functions but threads without
+one will be required to register one to themselves using set_loop prior to
+doing so. Calling set_loop will be unnecessary for threads that were created
+with thread_call as those threads will have already been registered.
+"""
+
 import asyncio as _asyncio
 import contextlib as _contextlib
 import functools as _functools
@@ -85,7 +118,7 @@ def get_loop():
 
     Raises:
         RuntimeError: If no event loop has been registered and no loop is
-        running in the current thread.
+            running in the current thread.
 
     See Also:
         set_loop
@@ -95,10 +128,21 @@ def get_loop():
 
 
 def set_loop(loop):
-    """Registers the event loop for the current thread.
+    """Registers an event loop to the current thread.
+
+    Any thread not running an asyncio event loop will be required to run this
+    function before any asynchronous functions are used. This is because most
+    of the functions in this library that involve asynchronous work are
+    designed to do so through an event loop.
+
+    A single event loop may be registered to any number of threads at once.
 
     Returns: A context manager that on exit will unregister loop and reregister
         the event loop that was originally set before set_loop was invoked.
+
+    See Also:
+        get_loop
+        thread_call
     """
     prev_loop = getattr(_local_data, 'loop', None)
     _local_data.loop = loop
@@ -132,7 +176,7 @@ def thread_call(f, executor=None):
         f: A function accepting no arguments.
         executor: An optional ThreadPoolExecutor to submit f to.
 
-    Returns: A channel that will emit the return value of f exactly once.
+    Returns: A channel containing the return value of f.
     """
     loop = get_loop()
     ch = chan(1)
@@ -154,10 +198,15 @@ def thread_call(f, executor=None):
 def go(coro):
     """Adds a coroutine object as a task to the current event loop.
 
+    Adds coro as a task to the event loop returned from get_loop().
+
     Args:
         coro: A coroutine object.
 
     Returns: A channel containing the return value of coro.
+
+    See Also:
+        goroutine
     """
     loop = get_loop()
     ch = chan(1)
@@ -382,7 +431,7 @@ def merge(chs, buf_or_n=None):
 
 
 def _every(ops):
-    """Returns a channel that contains a tuple of the operation results.
+    """Returns a channel containing a tuple of the operation results.
 
     Args:
         ops: An iterable of channel operations. See alts().
@@ -677,6 +726,7 @@ class mix:
             self._sync_state()
 
     def _sync_state(self):
+        """Syncs state_map contents with _proc."""
         soloed_chs, muted_chs, live_chs = set(), set(), set()
 
         for ch, state in self._state_map.items():

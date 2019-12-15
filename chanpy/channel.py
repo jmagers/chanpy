@@ -160,7 +160,7 @@ class chan:
     Channels support multiple producers and consumers and may be buffered or
     unbuffered. Additionally, buffered channels can optionally have a
     transformation applied to the values put to them through the use of a
-    transducer.
+    transducer. See transducers for more information on transformations.
 
     Channels may be used by threads with or without a running asyncio event
     loop. The get, put, and alt functions provide direct support for asyncio by
@@ -292,7 +292,10 @@ class chan:
         return future
 
     def b_put(self, val, *, wait=True):
-        """Same as put() except it blocks instead of returning an awaitable."""
+        """Same as put() except it blocks instead of returning an awaitable.
+
+        Does not require an event loop.
+        """
         prom = Promise()
         ret = self._p_put(FnHandler(prom.deliver, wait), val)
         if ret is not None:
@@ -300,7 +303,10 @@ class chan:
         return prom.deref()
 
     def b_get(self, *, wait=True):
-        """Same as get() except it blocks instead of returning an awaitable."""
+        """Same as get() except it blocks instead of returning an awaitable.
+
+        Does not require an event loop.
+        """
         prom = Promise()
         ret = self._p_get(FnHandler(prom.deliver, wait))
         if ret is not None:
@@ -309,6 +315,8 @@ class chan:
 
     def f_put(self, val, f=lambda _: None):
         """Asynchronously puts val onto the channel and calls f when complete.
+
+        Does not require an event loop.
 
         Args:
             val: A value to put onto the channel.
@@ -330,6 +338,8 @@ class chan:
 
     def f_get(self, f):
         """Asynchronously takes a value from the channel and calls f with it.
+
+        Does not require an event loop.
 
         Args:
             f: A non-blocking function accepting a single argument. Will be
@@ -360,6 +370,7 @@ class chan:
             self._close()
 
     async def __aiter__(self):
+        """Returns an asynchronous iterator over the channel's values."""
         while True:
             value = await self.get()
             if value is None:
@@ -367,7 +378,11 @@ class chan:
             yield value
 
     def to_iter(self):
-        """Returns an iterator over the channel's values."""
+        """Returns an iterator over the channel's values.
+
+        Each call to the iterator's next method may block.
+        Does not require an event loop.
+        """
         while True:
             val = self.b_get()
             if val is None:
