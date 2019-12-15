@@ -1,5 +1,6 @@
 import asyncio as _asyncio
 import contextlib as _contextlib
+import functools as _functools
 import random as _random
 import threading as _threading
 from . import buffers as _bufs
@@ -151,12 +152,12 @@ def thread_call(f, executor=None):
 
 
 def go(coro):
-    """Adds a coroutine as a task to the current event loop.
+    """Adds a coroutine object as a task to the current event loop.
 
     Args:
-        coro: A coroutine.
+        coro: A coroutine object.
 
-    Returns: A channel that will emit the return value of coro exactly once.
+    Returns: A channel containing the return value of coro.
     """
     loop = get_loop()
     ch = chan(1)
@@ -184,6 +185,33 @@ def go(coro):
     return ch
 
 
+def goroutine(coro):
+    """A decorator that converts a coroutine to a goroutine.
+
+    Goroutines are simply wrapper functions around coroutines (not coroutine
+    objects). When invoked, a goroutine will create a coroutine object by
+    passing all of its arguments to the provided coroutine. The newly created
+    coroutine object will then be added to the current event loop as a task via
+    a call to go(). The return value of go will then be returned (a channel
+    containing the result of the task).
+
+    The prime benefit of using goroutines over regular coroutines is that they
+    can easily be used from within both coroutines and regular functions. This
+    means they can be used the same way regardless of whether or not the
+    calling thread has a running event loop.
+
+    Args:
+        coro: A coroutine (not a coroutine object).
+
+    See Also:
+        go
+    """
+    @_functools.wraps(coro)
+    def goro(*args, **kwargs):
+        return go(coro(*args, **kwargs))
+    return goro
+
+
 def timeout(msecs):
     """Returns a channel that closes after given milliseconds."""
     ch = chan()
@@ -191,17 +219,14 @@ def timeout(msecs):
     return ch
 
 
-# TODO: Create goroutine decorator called goro
-def _reduce(rf, init, ch):
-    async def proc():
-        result = init
-        async for val in ch:
-            result = rf(result, val)
-            if xf.is_reduced(result):
-                break
-        return xf.unreduced(result)
-
-    return go(proc())
+@goroutine
+async def _reduce(rf, init, ch):
+    result = init
+    async for val in ch:
+        result = rf(result, val)
+        if xf.is_reduced(result):
+            break
+    return xf.unreduced(result)
 
 
 def reduce(rf, init, ch=_Undefined):
@@ -234,13 +259,11 @@ def reduce(rf, init, ch=_Undefined):
     return _reduce(rf, init, ch)
 
 
-def _transduce(xform, rf, init, ch):
-    async def proc():
-        xrf = xform(rf)
-        ret = await reduce(xrf, init, ch).get()
-        return xrf(ret)
-
-    return go(proc())
+@goroutine
+async def _transduce(xform, rf, init, ch):
+    xrf = xform(rf)
+    ret = await reduce(xrf, init, ch).get()
+    return xrf(ret)
 
 
 def transduce(xform, rf, init, ch=_Undefined):
@@ -281,7 +304,8 @@ def to_list(ch):
     return reduce(xf.append, ch)
 
 
-def onto_chan(ch, coll, *, close=True):
+@goroutine
+async def onto_chan(ch, coll, *, close=True):
     """Asynchronously transfers values from an iterable to a channel.
 
     Args:
@@ -291,13 +315,10 @@ def onto_chan(ch, coll, *, close=True):
 
     Returns: A channel that closes when transfer is finished.
     """
-    async def proc():
-        for x in coll:
-            await ch.put(x)
-        if close:
-            ch.close()
-
-    return go(proc())
+    for x in coll:
+        await ch.put(x)
+    if close:
+        ch.close()
 
 
 def to_chan(coll):
