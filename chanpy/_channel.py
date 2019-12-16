@@ -220,7 +220,7 @@ class chan:
         @xf.completing
         def xrf(_, val):
             if val is None:
-                raise TypeError('xform cannot produce None')
+                raise AssertionError('xform cannot produce None')
             self._buf.put(val)
 
         def ex_handler_rf(*args):
@@ -252,7 +252,6 @@ class chan:
             onto the channel or False if it is not.
 
         Raises:
-            TypeError: If val is None.
             RuntimeError: If the calling thread has no running event loop.
             QueueSizeExceeded: If the channel has too many pending put
                 operations.
@@ -319,14 +318,13 @@ class chan:
         Does not require an event loop.
 
         Args:
-            val: A value to put onto the channel.
+            val: A non-None value to put onto the channel.
             f: An optional non-blocking function accepting the completion
                 status of the put operation.
 
         Returns: False if channel is already closed or True if not.
 
         Raises:
-            TypeError: If val is None.
             QueueSizeExceeded: If the channel has too many pending put
                 operations.
         """
@@ -405,13 +403,12 @@ class chan:
         Args:
             handler: A handler that will be committed upon completion. Its
                 callback will only be invoked if the operation is enqueued.
-            val: A value to put onto the channel.
+            val: A non-None value to put onto the channel.
 
         Returns: A tuple containing the completion status if the operation
             completes immediately. None if the operation is enqueued.
 
         Raises:
-            TypeError: If val is None.
             QueueSizeExceeded: If the channel has too many pending put
                 operations.
         """
