@@ -36,9 +36,9 @@ import contextlib as _contextlib
 import functools as _functools
 import random as _random
 import threading as _threading
-from . import buffers as _bufs
-from .channel import chan, alts, b_alts, alt, b_alt, QueueSizeExceeded
-from . import xf
+from . import _buffers as _bufs
+from . import transducers as xf
+from ._channel import chan, alts, b_alts, alt, b_alt, QueueSizeExceeded
 
 
 class _Undefined:

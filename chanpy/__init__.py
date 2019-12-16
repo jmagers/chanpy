@@ -1,2 +1,2 @@
-from . import xf
+from . import transducers
 from .core import *

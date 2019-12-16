@@ -5,7 +5,8 @@ import threading
 import time
 import unittest
 import chanpy as c
-from chanpy import chan, xf
+from chanpy import chan
+from chanpy import transducers as xf
 from concurrent.futures import ThreadPoolExecutor
 
 

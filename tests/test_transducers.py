@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import unittest
-from chanpy import xf
+from chanpy import transducers as xf
 
 
 sum_rf = xf.multi_arity(lambda: 0, xf.identity, lambda x, y: x + y)

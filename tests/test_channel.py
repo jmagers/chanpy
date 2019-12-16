@@ -5,8 +5,8 @@ import threading
 import time
 import unittest
 import chanpy as c
-from chanpy import buffers, chan, xf
-from chanpy.channel import Promise
+from chanpy import _buffers, chan, transducers as xf
+from chanpy._channel import Promise
 
 
 def b_list(ch):
@@ -1153,7 +1153,7 @@ class TestSlidingBuffer(unittest.TestCase):
 
 class TestPromiseBuffer(unittest.TestCase):
     def test_is_unblocking_buffer(self):
-        self.assertIs(c.is_unblocking_buffer(buffers.PromiseBuffer()), True)
+        self.assertIs(c.is_unblocking_buffer(_buffers.PromiseBuffer()), True)
 
 
 if __name__ == '__main__':

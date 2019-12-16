@@ -4,8 +4,8 @@ import random
 import threading
 from collections import deque
 from numbers import Number
-from . import buffers as bufs
-from . import xf
+from . import _buffers as bufs
+from . import transducers as xf
 
 
 MAX_QUEUE_SIZE = 1024
