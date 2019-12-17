@@ -36,9 +36,10 @@ import contextlib as _contextlib
 import functools as _functools
 import random as _random
 import threading as _threading
-from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
+from multiprocessing import Pool as _ProcPool
+from multiprocessing.dummy import Pool as _DummyPool
 from . import _buffers as _bufs
-from . import transducers as xf
+from . import transducers as _xf
 from ._channel import chan, alts, b_alts, alt, b_alt, QueueSizeExceeded
 
 
@@ -274,9 +275,9 @@ async def _reduce(rf, init, ch):
     result = init
     async for val in ch:
         result = rf(result, val)
-        if xf.is_reduced(result):
+        if _xf.is_reduced(result):
             break
-    return xf.unreduced(result)
+    return _xf.unreduced(result)
 
 
 def reduce(rf, init, ch=_Undefined):
@@ -351,7 +352,7 @@ def to_list(ch):
 
     Returns: A channel containing a list of values from ch.
     """
-    return reduce(xf.append, ch)
+    return reduce(_xf.append, ch)
 
 
 @goroutine
@@ -404,72 +405,87 @@ def pipe(from_ch, to_ch, *, close=True):
     return to_ch
 
 
-# TODO: Add support for ProcessPoolExecutor
-def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None, *, executor=None):
-    """Transforms values from from_ch to to_ch with parallelism n.
+# Global _pipeline* vars are a hack to get pipeline's nested transform function
+# to work with multiprocessing.Pool.map (pickling workaround)
+_pipeline_transform = None
 
-    Values from from_ch will be transformed in parallel with up to n threads.
-    The transducer will be applied to values from from_ch independently
-    (not across values) and may produce zero or more outputs per input. The
-    transformed values will be put onto to_ch in order relative to the inputs.
-    If to_ch closes then from_ch will no longer be consumed from.
+
+def _pipeline_initializer(transform):
+    global _pipeline_transform
+    _pipeline_transform = transform
+
+
+def _pipeline_transform_wrapper(x):
+    return _pipeline_transform(x)
+
+
+def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None,
+             mode='thread', chunksize=1):
+    """Transforms values from from_ch to to_ch in parallel.
+
+    Values from from_ch will be transformed in parallel using a pool of threads
+    or processes. The transducer will be applied to values from from_ch
+    independently (not across values) and may produce zero or more outputs per
+    input. The transformed values will be put onto to_ch in order relative to
+    the inputs. If to_ch closes then from_ch will no longer be consumed from.
 
     Args:
-        n: A positive int representing the number of threads used for
-            parallelism.
+        n: A positive int specifying the maximum number of workers to run in
+            parallel.
         to_ch: A channel to put the transformed values onto.
         xform: A transducer that will be applied to each value independently
             (not across values).
         from_ch: A channel to get values from.
         close: An optional bool. If true, to_ch will be closed after transfer
             finishes.
-        ex_handler: An optional exception handler. See chan().
-        executor: An optional ThreadPoolExecutor.
+        ex_handler: An exception handler. See chan().
+        mode: An optional string, either 'thread' or 'process'. Specifies
+            whether to use a thread or process pool to parallelize work.
+            If CPython is being used with 'thread' then xform must release the
+            GIL at some point in order to achieve any parallelism.
+        chunksize: An optional positive int that's only relevant when in
+            processing mode. Specifies the approximate amount of values each
+            worker will receive at once.
 
     Returns: A channel that closes after transfer has finished.
 
     Note: If using CPython, parallelism can only be achieved if the transducer
         releases the GIL at some point.
     """
-    executor = _ThreadPoolExecutor(n) if executor is None else executor
-    work_ch = chan(n)
-    results_ch = chan(n)  # A 3d channel, see worker() comment as to why
 
-    def worker():
-        for result_ch, val in work_ch.to_iter():
-            # Note: val needs to be put on ch and not directly on result_ch.
-            # If result_ch contained a blocking xform then putting to it could
-            # block the event loop in collect_results().
-            ch = chan(1, xform, ex_handler)
-            ch.b_put(val)
-            ch.close()
-            result_ch.b_put(ch)
+    def transform(val):
+        ch = chan(1, xform, ex_handler)
+        ch.b_put(val)
+        ch.close()
+        return list(ch.to_iter())
 
-    async def distribute_input():
-        async for val in from_ch:
-            result_ch = chan(1)
-            put_statuses = await _asyncio.gather(work_ch.put([result_ch, val]),
-                                                 results_ch.put(result_ch))
-            if False in put_statuses:
-                break
-        work_ch.close()
-        results_ch.close()
+    if mode == 'thread':
+        pool = _DummyPool(n)
+        transform_func = transform
+    elif mode == 'process':
+        pool = _ProcPool(n, _pipeline_initializer, [transform])
+        transform_func = _pipeline_transform_wrapper
+    else:
+        raise ValueError('mode argument needs to be either "thread" or "pool"')
 
-    async def collect_results():
-        async for result_ch in results_ch:
-            async for val in await result_ch.get():
-                if not await to_ch.put(val):
-                    work_ch.close()
-                    results_ch.close()
-                    break  # breaks then drains result_ch
-        if close:
-            to_ch.close()
+    complete_ch = chan()
 
-    for _ in range(n):
-        executor.submit(worker)
+    def start():
+        try:
+            for vals in pool.imap(transform_func,
+                                  from_ch.to_iter(),
+                                  chunksize):
+                for val in vals:
+                    if not to_ch.b_put(val):
+                        return
+        finally:
+            if close:
+                to_ch.close()
+            complete_ch.close()
+            pool.terminate()
 
-    go(distribute_input())
-    return go(collect_results())
+    _threading.Thread(target=start).start()
+    return complete_ch
 
 
 def merge(chs, buf_or_n=None):

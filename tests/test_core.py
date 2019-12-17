@@ -750,37 +750,60 @@ class TestPipe(unittest.TestCase):
 
 
 class TestPipeline(unittest.TestCase):
-    def test_output(self):
+    def _test_output(self, mode):
         def f(x):
-            time.sleep(0.1)
+            time.sleep(0.2)
             return str(x)
 
         async def main():
             xform = xf.map(f)
             start_time = time.time()
             to_ch = chan(5)
-            finished_ch = c.pipeline(5, to_ch, xform, c.to_chan(range(5)))
+            finished_ch = c.pipeline(5, to_ch, xform, c.to_chan(range(5)),
+                                     mode=mode)
             self.assertIs(await finished_ch.get(), None)
             elapsed_time = time.time() - start_time
-            self.assertTrue(0.05 < elapsed_time < 0.15)
+            self.assertTrue(0.1 < elapsed_time < 0.3)
             self.assertEqual(await a_list(to_ch), ['0', '1', '2', '3', '4'])
 
         asyncio.run(main())
 
-    def test_to_ch_not_closed(self):
+    def _test_to_ch_not_closed(self, mode):
         async def main():
             to_ch = chan(5)
-            c.pipeline(5, to_ch, xf.map(str), c.to_chan(range(5)))
+            c.pipeline(5, to_ch, xf.map(str), c.to_chan(range(5)),
+                       close=False, mode=mode)
             for i in range(5):
                 self.assertEqual(await to_ch.get(), str(i))
-            await to_ch.put('success')
+            self.assertIs(await to_ch.put('success'), True)
             to_ch.close()
             self.assertEqual(await to_ch.get(), 'success')
             self.assertIs(await to_ch.get(), None)
 
         asyncio.run(main())
 
-    def test_ex_handler(self):
+    def _test_stop_consuming_from_ch(self, mode):
+        async def main():
+            to_ch = chan(5, xf.take(5))
+            from_ch = c.to_chan(range(20))
+            c.pipeline(5, to_ch, xf.identity, from_ch, mode=mode)
+            await asyncio.sleep(0.1)
+            self.assertEqual(await a_list(to_ch), [0, 1, 2, 3, 4])
+            self.assertTrue(len(await a_list(from_ch)) > 5)
+
+        asyncio.run(main())
+
+    def _test_output_with_chunksize(self, mode):
+        async def main():
+            to_ch = chan(5)
+            finished_ch = c.pipeline(5, to_ch, xf.map(str), c.to_chan(range(5)),
+                                     mode=mode, chunksize=2)
+            self.assertIs(await finished_ch.get(), None)
+            self.assertEqual(await a_list(to_ch), ['0', '1', '2', '3', '4'])
+
+        asyncio.run(main())
+
+    def _test_ex_handler(self, mode):
         def f(x):
             if x == 1:
                 raise ValueError
@@ -792,23 +815,45 @@ class TestPipeline(unittest.TestCase):
 
         async def main():
             to_ch = chan(2)
-            c.pipeline(1, to_ch, xf.map(f), c.to_chan([1, 2]), True, ex_handler)
+            c.pipeline(1, to_ch, xf.map(f), c.to_chan([1, 2]),
+                       True, ex_handler, mode=mode)
             self.assertEqual(await a_list(to_ch), ['ex_handler value', '2'])
 
         asyncio.run(main())
 
-    def test_executor(self):
-        def f(_):
-            return threading.get_ident()
+    def test_invalid_mode(self):
+        with self.assertRaises(ValueError):
+            c.pipeline(1, chan(), xf.identity, chan(), mode='invalid')
 
-        async def main():
-            executor = ThreadPoolExecutor(1)
-            t_id = await c.thread_call(lambda: f(None), executor).get()
-            to_ch = chan(2)
-            c.pipeline(1, to_ch, xf.map(f), c.to_chan([1, 2]), executor=executor)
-            self.assertEqual(await a_list(to_ch), [t_id, t_id])
+    def test_thread_output(self):
+        self._test_output('thread')
 
-        asyncio.run(main())
+    def test_thread_to_ch_not_closed(self):
+        self._test_to_ch_not_closed('thread')
+
+    def test_thread_stop_consuming_from_ch(self):
+        self._test_stop_consuming_from_ch('thread')
+
+    def test_thread_output_with_chunksize(self):
+        self._test_output_with_chunksize('thread')
+
+    def test_thread_ex_handler(self):
+        self._test_ex_handler('thread')
+
+    def test_process_output(self):
+        self._test_output('process')
+
+    def test_process_to_ch_not_closed(self):
+        self._test_to_ch_not_closed('process')
+
+    def test_process_stop_consuming_from_ch(self):
+        self._test_stop_consuming_from_ch('process')
+
+    def test_thread_output_with_chunksize(self):
+        self._test_output_with_chunksize('process')
+
+    def test_process_ex_handler(self):
+        self._test_ex_handler('process')
 
 
 class TestReduce(unittest.TestCase):
