@@ -749,6 +749,68 @@ class TestPipe(unittest.TestCase):
         asyncio.run(main())
 
 
+class TestPipeline(unittest.TestCase):
+    def test_output(self):
+        def f(x):
+            time.sleep(0.1)
+            return str(x)
+
+        async def main():
+            xform = xf.map(f)
+            start_time = time.time()
+            to_ch = chan(5)
+            finished_ch = c.pipeline(5, to_ch, xform, c.to_chan(range(5)))
+            self.assertIs(await finished_ch.get(), None)
+            elapsed_time = time.time() - start_time
+            self.assertTrue(0.05 < elapsed_time < 0.15)
+            self.assertEqual(await a_list(to_ch), ['0', '1', '2', '3', '4'])
+
+        asyncio.run(main())
+
+    def test_to_ch_not_closed(self):
+        async def main():
+            to_ch = chan(5)
+            c.pipeline(5, to_ch, xf.map(str), c.to_chan(range(5)))
+            for i in range(5):
+                self.assertEqual(await to_ch.get(), str(i))
+            await to_ch.put('success')
+            to_ch.close()
+            self.assertEqual(await to_ch.get(), 'success')
+            self.assertIs(await to_ch.get(), None)
+
+        asyncio.run(main())
+
+    def test_ex_handler(self):
+        def f(x):
+            if x == 1:
+                raise ValueError
+            return str(x)
+
+        def ex_handler(e):
+            if isinstance(e, ValueError):
+                return 'ex_handler value'
+
+        async def main():
+            to_ch = chan(2)
+            c.pipeline(1, to_ch, xf.map(f), c.to_chan([1, 2]), True, ex_handler)
+            self.assertEqual(await a_list(to_ch), ['ex_handler value', '2'])
+
+        asyncio.run(main())
+
+    def test_executor(self):
+        def f(_):
+            return threading.get_ident()
+
+        async def main():
+            executor = ThreadPoolExecutor(1)
+            t_id = await c.thread_call(lambda: f(None), executor).get()
+            to_ch = chan(2)
+            c.pipeline(1, to_ch, xf.map(f), c.to_chan([1, 2]), executor=executor)
+            self.assertEqual(await a_list(to_ch), [t_id, t_id])
+
+        asyncio.run(main())
+
+
 class TestReduce(unittest.TestCase):
     def test_empty_ch(self):
         async def main():

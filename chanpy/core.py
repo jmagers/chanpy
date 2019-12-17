@@ -36,6 +36,7 @@ import contextlib as _contextlib
 import functools as _functools
 import random as _random
 import threading as _threading
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 from . import _buffers as _bufs
 from . import transducers as xf
 from ._channel import chan, alts, b_alts, alt, b_alt, QueueSizeExceeded
@@ -401,6 +402,74 @@ def pipe(from_ch, to_ch, *, close=True):
 
     go(proc())
     return to_ch
+
+
+# TODO: Add support for ProcessPoolExecutor
+def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None, *, executor=None):
+    """Transforms values from from_ch to to_ch with parallelism n.
+
+    Values from from_ch will be transformed in parallel with up to n threads.
+    The transducer will be applied to values from from_ch independently
+    (not across values) and may produce zero or more outputs per input. The
+    transformed values will be put onto to_ch in order relative to the inputs.
+    If to_ch closes then from_ch will no longer be consumed from.
+
+    Args:
+        n: A positive int representing the number of threads used for
+            parallelism.
+        to_ch: A channel to put the transformed values onto.
+        xform: A transducer that will be applied to each value independently
+            (not across values).
+        from_ch: A channel to get values from.
+        close: An optional bool. If true, to_ch will be closed after transfer
+            finishes.
+        ex_handler: An optional exception handler. See chan().
+        executor: An optional ThreadPoolExecutor.
+
+    Returns: A channel that closes after transfer has finished.
+
+    Note: If using CPython, parallelism can only be achieved if the transducer
+        releases the GIL at some point.
+    """
+    executor = _ThreadPoolExecutor(n) if executor is None else executor
+    work_ch = chan(n)
+    results_ch = chan(n)  # A 3d channel, see worker() comment as to why
+
+    def worker():
+        for result_ch, val in work_ch.to_iter():
+            # Note: val needs to be put on ch and not directly on result_ch.
+            # If result_ch contained a blocking xform then putting to it could
+            # block the event loop in collect_results().
+            ch = chan(1, xform, ex_handler)
+            ch.b_put(val)
+            ch.close()
+            result_ch.b_put(ch)
+
+    async def distribute_input():
+        async for val in from_ch:
+            result_ch = chan(1)
+            put_statuses = await _asyncio.gather(work_ch.put([result_ch, val]),
+                                                 results_ch.put(result_ch))
+            if False in put_statuses:
+                break
+        work_ch.close()
+        results_ch.close()
+
+    async def collect_results():
+        async for result_ch in results_ch:
+            async for val in await result_ch.get():
+                if not await to_ch.put(val):
+                    work_ch.close()
+                    results_ch.close()
+                    break  # breaks then drains result_ch
+        if close:
+            to_ch.close()
+
+    for _ in range(n):
+        executor.submit(worker)
+
+    go(distribute_input())
+    return go(collect_results())
 
 
 def merge(chs, buf_or_n=None):
