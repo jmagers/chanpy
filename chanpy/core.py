@@ -451,6 +451,9 @@ def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None,
 
     Note: If using CPython, parallelism can only be achieved if the transducer
         releases the GIL at some point.
+
+    See Also:
+        pipeline_async
     """
 
     def transform(val):
@@ -486,6 +489,60 @@ def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None,
 
     _threading.Thread(target=start).start()
     return complete_ch
+
+
+def pipeline_async(n, to_ch, af, from_ch, close=True):
+    """Transforms values from from_ch to to_ch in parallel using an async function.
+
+    Values will be gathered from from_ch and passed to af along with a channel
+    for it's outputs to be placed onto. af will be called as af(val, result_ch)
+    and should return immediately, having spawned some asynchronous operation
+    that will place zero or more results onto result_ch. Up to n of these
+    asynchronous "processes" will be run at once, each of which will be
+    required to close their corresponding result_ch when finished. Values from
+    these result channels will be placed onto to_ch in order relative to the
+    inputs from from_ch. If to_ch closes, then from_ch will no longer be
+    consumed from and any unclosed result channels will be closed.
+
+    Args:
+        n: A positive int representing the maximum number of asynchronous
+            "processes" to run at once.
+        to_ch: A channel to place the results onto.
+        af: A non-blocking function that will be called as af(val, result_ch).
+            This function will presumably spawn some kind of asynchronous
+            operation that will place results onto result_ch. result_ch must be
+            closed before the asynchronous operation finishes.
+        from_ch: A channel to get values form.
+        close: An optional bool. If true, to_ch will be closed after transfer
+            finishes.
+
+    See Also:
+        pipeline
+    """
+    if n < 1 or n != int(n):
+        raise ValueError('n must be a positive int')
+    results_ch = chan(None if n == 1 else n - 1)  # A channel of result channels
+
+    async def distribute_input():
+        async for val in from_ch:
+            result_ch = chan(1)
+            if not await results_ch.put(result_ch):
+                break
+            af(val, result_ch)
+        results_ch.close()
+
+    async def collect_results():
+        async for result_ch in results_ch:
+            async for val in result_ch:
+                if not await to_ch.put(val):
+                    result_ch.close()
+                    results_ch.close()
+                    break  # breaks, then drains results_ch
+        if close:
+            to_ch.close()
+
+    go(distribute_input())
+    return go(collect_results())
 
 
 def merge(chs, buf_or_n=None):

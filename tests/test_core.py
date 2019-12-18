@@ -856,6 +856,45 @@ class TestPipeline(unittest.TestCase):
         self._test_ex_handler('process')
 
 
+class TestPipelineAsync(unittest.TestCase):
+    def test_pipeline_async(self):
+        def thread(val, result_ch):
+            result_ch.b_put(val)
+            time.sleep(0.2)
+            result_ch.b_put(str(val))
+            result_ch.close()
+
+        def af(val, result_ch):
+            threading.Thread(target=thread, args=[val, result_ch]).start()
+
+        async def main():
+            to_ch = chan(8)
+            start_time = time.time()
+            finished_ch = c.pipeline_async(2, to_ch, af, c.to_chan([1, 2, 3, 4]))
+            self.assertIs(await finished_ch.get(), None)
+            self.assertTrue(0.3 < time.time() - start_time < 0.5)
+            self.assertEqual(await a_list(to_ch),
+                             [1, '1', 2, '2', 3, '3', 4, '4'])
+
+        asyncio.run(main())
+
+    def test_pipeline_async_no_close(self):
+        def af(_, result_ch):
+            result_ch.close()
+
+        async def main():
+            to_ch = chan(1)
+            finished_ch = c.pipeline_async(2, to_ch, af,
+                                           c.to_chan([1, 2, 3, 4]), False)
+            self.assertIs(await finished_ch.get(), None)
+            await to_ch.put('success')
+            to_ch.close()
+            self.assertEqual(await to_ch.get(), 'success')
+            self.assertIs(await to_ch.get(), None)
+
+        asyncio.run(main())
+
+
 class TestReduce(unittest.TestCase):
     def test_empty_ch(self):
         async def main():
