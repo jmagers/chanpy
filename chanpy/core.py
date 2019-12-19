@@ -282,8 +282,8 @@ async def _reduce(rf, init, ch):
 
 def reduce(rf, init, ch=_Undefined):
     """
-    reduce(rf, ch) -> result_ch
     reduce(rf, init, ch) -> result_ch
+    reduce(rf, ch) -> result_ch
 
     Asynchronously reduces a channel.
 
@@ -319,8 +319,8 @@ async def _transduce(xform, rf, init, ch):
 
 def transduce(xform, rf, init, ch=_Undefined):
     """
-    transduce(xform, rf, ch) -> result_ch
     transduce(xform, rf, init, ch) -> result_ch
+    transduce(xform, rf, ch) -> result_ch
 
     Asynchronously reduces a channel with a transformation.
 
@@ -362,9 +362,10 @@ async def onto_chan(ch, coll, *, close=True):
     Args:
         ch: A channel to put values onto.
         coll: An iterable to get values from.
-        close: An optional bool. ch will be closed if true.
+        close: An optional bool. If true, ch will be closed after transfer
+            finishes.
 
-    Returns: A channel that closes when transfer is finished.
+    Returns: A channel that closes after transfer has finished.
     """
     for x in coll:
         await ch.put(x)
@@ -419,8 +420,8 @@ def _pipeline_transform_wrapper(x):
     return _pipeline_transform(x)
 
 
-def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None,
-             mode='thread', chunksize=1):
+def pipeline(n, to_ch, xform, from_ch, *,
+             close=True, ex_handler=None, mode='thread', chunksize=1):
     """Transforms values from from_ch to to_ch in parallel.
 
     Values from from_ch will be transformed in parallel using a pool of threads
@@ -439,18 +440,15 @@ def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None,
         close: An optional bool. If true, to_ch will be closed after transfer
             finishes.
         ex_handler: An exception handler. See chan().
-        mode: An optional string, either 'thread' or 'process'. Specifies
-            whether to use a thread or process pool to parallelize work.
-            If CPython is being used with 'thread' then xform must release the
-            GIL at some point in order to achieve any parallelism.
+        mode: Either 'thread' or 'process'. Specifies whether to use a thread
+            or process pool to parallelize work. Note that if CPython is being
+            used with 'thread' then xform must release the GIL at some point in
+            order to achieve any parallelism.
         chunksize: An optional positive int that's only relevant when in
             processing mode. Specifies the approximate amount of values each
             worker will receive at once.
 
     Returns: A channel that closes after transfer has finished.
-
-    Note: If using CPython, parallelism can only be achieved if the transducer
-        releases the GIL at some point.
 
     See Also:
         pipeline_async
@@ -491,13 +489,13 @@ def pipeline(n, to_ch, xform, from_ch, close=True, ex_handler=None,
     return complete_ch
 
 
-def pipeline_async(n, to_ch, af, from_ch, close=True):
+def pipeline_async(n, to_ch, af, from_ch, *, close=True):
     """Transforms values from from_ch to to_ch in parallel using an async function.
 
     Values will be gathered from from_ch and passed to af along with a channel
     for it's outputs to be placed onto. af will be called as af(val, result_ch)
     and should return immediately, having spawned some asynchronous operation
-    that will place zero or more results onto result_ch. Up to n of these
+    that will place zero or more outputs onto result_ch. Up to n of these
     asynchronous "processes" will be run at once, each of which will be
     required to close their corresponding result_ch when finished. Values from
     these result channels will be placed onto to_ch in order relative to the
@@ -510,7 +508,7 @@ def pipeline_async(n, to_ch, af, from_ch, close=True):
         to_ch: A channel to place the results onto.
         af: A non-blocking function that will be called as af(val, result_ch).
             This function will presumably spawn some kind of asynchronous
-            operation that will place results onto result_ch. result_ch must be
+            operation that will place outputs onto result_ch. result_ch must be
             closed before the asynchronous operation finishes.
         from_ch: A channel to get values form.
         close: An optional bool. If true, to_ch will be closed after transfer
@@ -621,6 +619,7 @@ def map(f, chs, buf_or_n=None):
 
     Returns: A channel containing the return values of f.
     """
+    chs = tuple(chs)
     to_ch = chan(buf_or_n)
 
     async def proc():
@@ -710,17 +709,17 @@ class pub:
         topic_fn: A function that given a value from ch returns a topic
             identifier.
         buf_fn: An optional function that given a topic returns a buffer to be
-            used with that topic's mult channel.
-
+            used with that topic's mult channel. If not provided, channels will
+            be unbuffered.
 
     See Also:
         mult
     """
-    def __init__(self, ch, topic_fn, buf_fn=lambda _: None):
+    def __init__(self, ch, topic_fn, buf_fn=None):
         self._lock = _threading.Lock()
         self._from_ch = ch
         self._topic_fn = topic_fn
-        self._buf_fn = buf_fn
+        self._buf_fn = (lambda _: None) if buf_fn is None else buf_fn
         self._mults = {}  # topic->mult
         go(self._proc())
 
@@ -739,7 +738,7 @@ class pub:
             self._mults[topic].tap(ch, close=close)
 
     def unsub(self, topic, ch):
-        """"Unsubscribes a channel from the given topic."""
+        """Unsubscribes a channel from the given topic."""
         with self._lock:
             m = self._mults.get(topic, None)
             if m is not None:
@@ -749,7 +748,10 @@ class pub:
                     self._mults.pop(topic)
 
     def unsub_all(self, topic=_Undefined):
-        """Unsubscribes all subs from a topic or all topics if not provided."""
+        """
+        unsub_all(topic=Undefined)
+
+        Unsubscribes all subs from a topic or all topics if not provided."""
         with self._lock:
             topics = tuple(self._mults) if topic is _Undefined else [topic]
             for t in topics:

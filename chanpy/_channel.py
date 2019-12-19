@@ -8,6 +8,9 @@ from . import _buffers as bufs
 from . import transducers as xf
 
 
+__all__ = ['chan', 'alts', 'b_alts', 'alt', 'b_alt', 'QueueSizeExceeded']
+
+
 MAX_QUEUE_SIZE = 1024
 
 
@@ -312,7 +315,7 @@ class chan:
             return ret[0]
         return prom.deref()
 
-    def f_put(self, val, f=lambda _: None):
+    def f_put(self, val, f=None):
         """Asynchronously puts val onto the channel and calls f when complete.
 
         Does not require an event loop.
@@ -328,6 +331,7 @@ class chan:
             QueueSizeExceeded: If the channel has too many pending put
                 operations.
         """
+        f = (lambda _: None) if f is None else f
         ret = self._p_put(FnHandler(f), val)
         if ret is None:
             return True
@@ -621,7 +625,10 @@ def _alts(flag, deliver_fn, ops, priority, default):
 
 
 def alts(ops, *, priority=False, default=_Undefined):
-    """Returns an awaitable representing the first and only channel operation to finish.
+    """
+    alts(opts, *, priority=False, default=Undefined)
+
+    Returns an awaitable representing the first and only channel operation to finish.
 
     Accepts an iterable of operations that either get from or put to a channel
     and commits only one of them. If no default is provided then only the first
@@ -660,17 +667,26 @@ def alts(ops, *, priority=False, default=_Undefined):
 
 
 def b_alts(ops, *, priority=False, default=_Undefined):
-    """Same as alts() except it blocks instead of returning an awaitable."""
+    """
+    b_alts(opts, *, priority=False, default=Undefined)
+
+    Same as alts() except it blocks instead of returning an awaitable."""
     prom = Promise()
     ret = _alts(create_flag(), prom.deliver, ops, priority, default)
     return prom.deref() if ret is None else ret
 
 
 def alt(*ops, priority=False, default=_Undefined):
-    """A variadic version of alts()."""
+    """
+    alt(*ops, priority=False, default=Undefined)
+
+    A variadic version of alts()."""
     return alts(ops, priority=priority, default=default)
 
 
 def b_alt(*ops, priority=False, default=_Undefined):
-    """A variadic version of b_alts()."""
+    """
+    b_alt(*ops, priority=False, default=Undefined)
+
+    A variadic version of b_alts()."""
     return b_alts(ops, priority=priority, default=default)

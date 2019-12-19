@@ -10,12 +10,12 @@ Transducer features:
 - Support early termination via reduced values. See reduced().
 
 Creating transducers:
-Transducers are also known as reducing function transformers. They are simply
-functions that accept a reducing function as input and return a new reducing
-function as output. A reducing function is defined as a function that accepts
-2 arguments (step arity), 1 argument (completion arity), and optionally
-0 arguments (init arity). multi_arity() can be used to help create these
-multi-arity reducing functions.
+    Transducers are also known as reducing function transformers. They are
+    simply functions that accept a reducing function as input and return a new
+    reducing function as output. A reducing function is defined as a function
+    that accepts 2 arguments (step arity), 1 argument (completion arity), and
+    optionally 0 arguments (init arity). multi_arity() can be used to help
+    create these multi-arity reducing functions.
 
 See https://clojure.org/reference/transducers for more information about
 transducers.
@@ -127,8 +127,8 @@ def _ireduce(rf, init, coll):
 
 def ireduce(rf, init, coll=_Undefined):
     """
-    ireduce(rf, coll) -> reduction result
     ireduce(rf, init, coll) -> reduction result
+    ireduce(rf, coll) -> reduction result
 
     Returns the result of reducing an iterable.
 
@@ -161,8 +161,8 @@ def _itransduce(xform, rf, init, coll):
 
 def itransduce(xform, rf, init, coll=_Undefined):
     """
-    itransduce(xform, rf, coll) -> reduction result
     itransduce(xform, rf, init, coll) -> reduction result
+    itransduce(xform, rf, coll) -> reduction result
 
     Returns the result of reducing an iterable with a transformation.
 
@@ -189,9 +189,11 @@ def itransduce(xform, rf, init, coll=_Undefined):
 
 def append(appendable=_Undefined, val=_Undefined):
     """
-    append() -> []
-    append(appendable) -> appendable
     append(appendable, val) -> appendable.append(val)
+
+    append(appendable) -> appendable
+
+    append() -> []
 
     A reducing function that appends val to appendable.
     """
@@ -734,7 +736,10 @@ def partition_by(f):
 
 
 def reductions(rf, init=_Undefined):
-    """Returns a transducer that outputs each intermediate result from a reduction.
+    """
+    reductions(rf, init=Undefined)
+
+    Returns a transducer that outputs each intermediate result from a reduction.
 
     The transformation first outputs init. From then on, all outputs will
     be of the form rf(prev_output, val) where val is an input to the

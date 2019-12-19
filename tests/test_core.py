@@ -816,7 +816,7 @@ class TestPipeline(unittest.TestCase):
         async def main():
             to_ch = chan(2)
             c.pipeline(1, to_ch, xf.map(f), c.to_chan([1, 2]),
-                       True, ex_handler, mode=mode)
+                       ex_handler=ex_handler, mode=mode)
             self.assertEqual(await a_list(to_ch), ['ex_handler value', '2'])
 
         asyncio.run(main())
@@ -885,7 +885,8 @@ class TestPipelineAsync(unittest.TestCase):
         async def main():
             to_ch = chan(1)
             finished_ch = c.pipeline_async(2, to_ch, af,
-                                           c.to_chan([1, 2, 3, 4]), False)
+                                           c.to_chan([1, 2, 3, 4]),
+                                           close=False)
             self.assertIs(await finished_ch.get(), None)
             await to_ch.put('success')
             to_ch.close()
