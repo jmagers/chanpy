@@ -143,8 +143,9 @@ def set_loop(loop):
     Args:
         loop: An asyncio event loop.
 
-    Returns: A context manager that on exit will unregister loop and reregister
-        the event loop that was originally set.
+    Returns:
+        A context manager that on exit will unregister loop and reregister the
+        event loop that was originally set.
 
     See Also:
         :func:`get_loop`
@@ -182,7 +183,8 @@ def thread_call(f, executor=None):
         f: A function accepting no arguments.
         executor: An optional :class:`ThreadPoolExecutor` to submit `f` to.
 
-    Returns: A channel containing the return value of `f`.
+    Returns:
+        A channel containing the return value of `f`.
     """
     loop = get_loop()
     ch = chan(1)
@@ -210,7 +212,8 @@ def go(coro):
     Args:
         coro: A coroutine object.
 
-    Returns: A channel containing the return value of `coro`.
+    Returns:
+        A channel containing the return value of `coro`.
 
     See Also:
         :func:`goroutine`
@@ -306,7 +309,8 @@ def reduce(rf, init, ch=_Undefined):
         init: An optional initial value.
         ch: A channel to get values from.
 
-    Returns: A channel containing the result of the reduction.
+    Returns:
+        A channel containing the result of the reduction.
 
     See Also:
         :func:`transduce`
@@ -344,7 +348,8 @@ def transduce(xform, rf, init, ch=_Undefined):
         init: An optional initial value.
         ch: A channel to get values from.
 
-    Returns: A channel containing the result of the reduction.
+    Returns:
+        A channel containing the result of the reduction.
 
     See Also:
         :func:`reduce`
@@ -357,7 +362,8 @@ def transduce(xform, rf, init, ch=_Undefined):
 def to_list(ch):
     """Asynchronously reduces the values from a channel to a list.
 
-    Returns: A channel containing a list of values from `ch`.
+    Returns:
+        A channel containing a list of values from `ch`.
     """
     return reduce(_xf.append, ch)
 
@@ -372,7 +378,8 @@ async def onto_chan(ch, coll, *, close=True):
         close: An optional bool. If True, `ch` will be closed after transfer
             finishes.
 
-    Returns: A channel that closes after transfer finishes.
+    Returns:
+        A channel that closes after the transfer finishes.
 
     See Also:
         :func:`to_chan`
@@ -406,7 +413,8 @@ def pipe(from_ch, to_ch, *, close=True):
         close: An optional bool. If True, `to_ch` will be closed after transfer
             finishes.
 
-    Returns: `to_ch`.
+    Returns:
+        `to_ch`.
     """
     async def proc():
         async for val in from_ch:
@@ -462,7 +470,8 @@ def pipeline(n, to_ch, xform, from_ch, *,
             ``mode='process'``. Specifies the approximate amount of values each
             worker will receive at once.
 
-    Returns: A channel that closes after transfer finishes.
+    Returns:
+        A channel that closes after the transfer finishes.
 
     See Also:
         :func:`pipeline_async`
@@ -636,7 +645,8 @@ def map(f, chs, buf_or_n=None):
         buf_or_n: An optional buffer to use with the returned channel.
             Can also be represented as a positive number. See :class:`chan`.
 
-    Returns: A channel containing the return values of `f`.
+    Returns:
+        A channel containing the return values of `f`.
     """
     chs = tuple(chs)
     to_ch = chan(buf_or_n)
@@ -950,7 +960,8 @@ def split(pred, ch, true_buf=None, false_buf=None):
         false_buf: An optional buffer to use with `false_ch`.
             See :class:`chan`.
 
-    Returns: A tuple of the form ``(true_ch, false_ch)``.
+    Returns:
+        A tuple of the form ``(true_ch, false_ch)``.
     """
     true_ch, false_ch = chan(true_buf), chan(false_buf)
 

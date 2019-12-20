@@ -100,8 +100,9 @@ def completing(rf, cf=identity):
         cf: An optional function that accepts a single argument. Used as the
             completion arity for the returned reducing function.
 
-    Returns: A reducing function that dispatches to `cf` when called with a
-        single argument or `rf` when called with any other number of arguments.
+    Returns:
+        A reducing function that dispatches to `cf` when called with a single
+        argument or `rf` when called with any other number of arguments.
     """
     @_functools.wraps(rf)
     def wrapper(*args):
@@ -239,8 +240,9 @@ def _step_safety(step):
     Args:
         step: A reducing function that accepts 2 arguments.
 
-    Returns: A wrapper function that adds an assertion that the `step` function
-        will never get called again once a :any:`reduced` value is returned.
+    Returns:
+        A wrapper function that adds an assertion that the `step` function will
+        never get called again once a :any:`reduced` value is returned.
     """
     end_of_input = False
 

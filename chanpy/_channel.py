@@ -253,8 +253,9 @@ class chan:
             wait: An optional bool that if False, fails the put operation when
                 it cannot complete immediately.
 
-        Returns: An awaitable that will evaluate to True if `val` is accepted
-            onto the channel or False if its not.
+        Returns:
+            An awaitable that will evaluate to True if `val` is accepted onto
+            the channel or False if its not.
 
         Raises:
             RuntimeError: If the calling thread has no running event loop.
@@ -279,8 +280,9 @@ class chan:
             wait: An optional bool that if False, fails the get operation when
                 a value is not immediately available.
 
-        Returns: An awaitable that evaluates to a value taken from the
-            channel or None if the operation fails.
+        Returns:
+            An awaitable that evaluates to a value taken from the channel or
+            None if the operation fails.
 
         Raises:
             RuntimeError: If the calling thread has no running event loop.
@@ -327,7 +329,8 @@ class chan:
             f: An optional non-blocking function accepting the completion
                 status of the put operation.
 
-        Returns: False if the channel is already closed or True if its not.
+        Returns:
+            False if the channel is already closed or True if its not.
 
         Raises:
             QueueSizeExceeded: If the channel has too many pending put
@@ -411,8 +414,9 @@ class chan:
                 callback will only be invoked if the operation is enqueued.
             val: A non-None value to put onto the channel.
 
-        Returns: A tuple containing the completion status if the operation
-            completes immediately. None if the operation is enqueued.
+        Returns:
+            A tuple containing the completion status if the operation completes
+            immediately. None if the operation is enqueued.
 
         Raises:
             QueueSizeExceeded: If the channel has too many pending put
@@ -474,8 +478,9 @@ class chan:
             handler: A handler that will be committed upon completion. Its
                 callback will only be invoked if the operation is enqueued.
 
-        Returns: A tuple containing the result of the get operation if it
-            completes immediately. None if the operation is enqueued.
+        Returns:
+            A tuple containing the result of the get operation if it completes
+            immediately. None if the operation is enqueued.
 
         Raises:
             QueueSizeExceeded: If the channel has too many pending get
@@ -649,7 +654,8 @@ def alts(ops, *, priority=False, default=_Undefined):
         default: An optional value to use in case no operation finishes
             immediately.
 
-    Returns: An awaitable that evaluates to a tuple of the form ``(val, ch)``.
+    Returns:
+        An awaitable that evaluates to a tuple of the form ``(val, ch)``.
         If `default` is not provided, then `val` will be what the first
         successful operation returned and `ch` will be the channel used in that
         operation. If `default` is provided and none of the operations complete
@@ -677,7 +683,10 @@ def b_alts(ops, *, priority=False, default=_Undefined):
     """
     b_alts(opts, *, priority=False, default=Undefined)
 
-    Same as :func:`alts` except it blocks instead of returning an awaitable."""
+    Same as :func:`alts` except it blocks instead of returning an awaitable.
+
+    Does not require an event loop.
+    """
     prom = Promise()
     ret = _alts(create_flag(), prom.deliver, ops, priority, default)
     return prom.deref() if ret is None else ret
@@ -687,7 +696,8 @@ def alt(*ops, priority=False, default=_Undefined):
     """
     alt(*ops, priority=False, default=Undefined)
 
-    A variadic version of :func:`alts`."""
+    A variadic version of :func:`alts`.
+    """
     return alts(ops, priority=priority, default=default)
 
 
@@ -695,5 +705,8 @@ def b_alt(*ops, priority=False, default=_Undefined):
     """
     b_alt(*ops, priority=False, default=Undefined)
 
-    A variadic version of :func:`b_alts`."""
+    A variadic version of :func:`b_alts`.
+
+    Does not require an event loop.
+    """
     return b_alts(ops, priority=priority, default=default)
