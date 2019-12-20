@@ -1,35 +1,27 @@
 """Core functions for working with channels.
 
-This library aims to bring the best features of Clojure's core.async library to
-Python.
+ChanPy's :class:`channels <chan>` have full support for use with asyncio
+coroutines, callback based code, and multi-threaded designs. The functions in
+this module are designed to primarily accept and produce channels and by doing
+so, can be used almost identically with each of the aforementioned styles.
 
-The center around any CSP library are channels. ChanPy's channels have full
-support for use with asyncio coroutines, callback based code, and
-multi-threaded designs. The functions in *chanpy.core* are designed to
-primarily accept and produce channels and by doing so, can be used almost
-identically with each of the aforementioned styles. See :class:`chan` for more
-details about channels.
+An extremely valuable feature from Clojure's core.async library is the ability
+to cheaply create asynchronous "processes" using go blocks. ChanPy, like
+`aiochan <https://github.com/zh217/aiochan>`_, is able to do something similar
+by leveraging Python's own asyncio library. Channels can easily be used from
+within coroutines which can then be added as tasks to an event loop. Chanpy
+additionally offers ways for these tasks to be added from threads without a
+running event loop.
 
-Like core.async, ChanPy channels have direct support for transformations via
-transducers. The :mod:`transducers <chanpy.transducers>` module provides many
-transducers as well as functions to help create and use them.
-
-Another very valuable feature from core.async is the ability to cheaply create
-asynchronous "processes" using go blocks. ChanPy, like aiochan, is able to do
-something similar by leveraging Python's own asyncio library. Channels can
-easily be used from within coroutines which can then be added as tasks to an
-event loop. Chanpy additionally offers ways for these tasks to be added from
-threads without a running event loop.
-
-An important thing to note about *chanpy.core* is that unless explicitly stated
-otherwise, any function involving asynchronous work should be assumed to
-require an asyncio event loop. Many of these functions leverage the use of an
-event loop for the efficiency reasons stated earlier. Threads with a running
-event loop will be able to directly call these functions but threads without
-one will be required to register one to themselves using :func:`set_loop` prior
-to doing so. Calling :func:`set_loop` will be unnecessary for threads that were
-created with :func:`thread_call` as those threads will have already been
-registered.
+Note:
+    Unless explicitly stated otherwise, any function involving asynchronous
+    work should be assumed to require an asyncio event loop. Many of these
+    functions leverage the use of an event loop for the efficiency reasons
+    stated earlier. Threads with a running event loop will be able to directly
+    call these functions but threads without one will be required to register
+    one to themselves using :func:`set_loop` prior to doing so. Calling
+    :func:`set_loop` will be unnecessary for threads that were created with
+    :func:`thread_call` as those threads will have already been registered.
 """
 
 import asyncio as _asyncio

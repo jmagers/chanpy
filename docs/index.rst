@@ -1,22 +1,10 @@
 Welcome to ChanPy's documentation!
 ==================================
 
-.. automodule:: chanpy.core
-   :members:
-   :imported-members:
-
-.. automodule:: chanpy.transducers
-   :members:
+ChanPy aims to bring the best features of Clojure's core.async library to
+Python.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
 
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   api
