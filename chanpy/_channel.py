@@ -139,7 +139,7 @@ class FlagHandler(HandlerManagerMixin):
 
 @contextlib.contextmanager
 def acquire_handlers(*handlers):
-    """Returns a context manager for acquiring *handlers* without deadlock."""
+    """Returns a context manager for acquiring `handlers` without deadlock."""
 
     # Acquire locks in consistent order
     for h in sorted(handlers, key=lambda h: h.lock_id):
@@ -163,26 +163,28 @@ class chan:
     Channels support multiple producers and consumers and may be buffered or
     unbuffered. Additionally, buffered channels can optionally have a
     transformation applied to the values put to them through the use of a
-    `transducer <transducers>`.
+    :any:`transducer <transducers>`.
 
     Channels may be used by threads with or without a running asyncio event
-    loop. The `get()`, `put()`, and `alt()` functions provide direct support
-    for asyncio by returning awaitables. Channels additionally can be used as
-    asynchronous generators when used with ``async for``. `b_get()`, `b_put()`,
-    `b_alt()`, and `to_iter()` provide blocking alternatives for threads which
-    do not wish to use asyncio. Channels can even be used with callback based
-    code via `f_put()` and `f_get()`. A very valuable feature of channels is
-    that producers and consumers of channels need not be of the same type. For
-    example, a value placed onto a channel with `put()` (asyncio) can be taken by a
-    call to `b_get()` (blocking) from a separate thread.
+    loop. The :meth:`get`, :meth:`put`, and :func:`alt` functions provide
+    direct support for asyncio by returning awaitables. Channels additionally
+    can be used as asynchronous generators when used with ``async for``.
+    :meth:`b_get`, :meth:`b_put`, :func:`b_alt`, and :meth:`to_iter` provide
+    blocking alternatives for threads which do not wish to use asyncio.
+    Channels can even be used with callback based code via :meth:`f_put` and
+    :meth:`f_get`. A very valuable feature of channels is that producers and
+    consumers of channels need not be of the same type. For example, a value
+    placed onto a channel with :meth:`put` (asyncio) can be taken by a call to
+    :meth:`b_get` (blocking) from a separate thread.
 
-    A select/alt feature is also available using the `alt()` and `b_alt()`
-    functions. This feature allows one to attempt many operations on a channel
-    at once and only have the first operation to complete actually committed.
+    A select/alt feature is also available using the :func:`alt` and
+    :func:`b_alt` functions. This feature allows one to attempt many operations
+    on a channel at once and only have the first operation to complete actually
+    committed.
 
     Once closed, future puts will be unsuccessful but any pending puts will
-    remain until consumed or until a `reduced` value is returned from the
-    transformation. Once exhausted, all future gets will complete with
+    remain until consumed or until a :any:`reduced` value is returned from
+    the transformation. Once exhausted, all future gets will complete with
     the value None. Because of this, None cannot be put onto a channel either
     directly or indirectly through a transformation.
 
@@ -190,15 +192,15 @@ class chan:
         buf_or_n: An optional buffer that may be expressed as a positive number.
             If it's a number, a fixed buffer of that capacity will be used.
             If None, the channel will be unbuffered.
-        xform: An optional `transducer <transducers>` for transforming elements
-            put onto the channel. *buf_or_n* must not be None if this is
-            provided.
+        xform: An optional :any:`transducer <transducers>` for transforming
+            elements put onto the channel. `buf_or_n` must not be None if this
+            is provided.
         ex_handler: An optional function to handle exceptions raised during
             transformation. Must accept the raised exception as a parameter.
             Any non-None return value will be put onto the buffer.
 
     Raises:
-        TypeError: If *xform* or *ex_handler* is provided when
+        TypeError: If `xform` or `ex_handler` is provided when
             ``buf_or_n=None``.
 
     """
@@ -238,20 +240,20 @@ class chan:
         self._buf_rf = ex_handler_rf
 
     def put(self, val, *, wait=True):
-        """Attempts to put *val* onto the channel.
+        """Attempts to put `val` onto the channel.
 
         Puts will fail in the following cases:
 
         * the channel is already closed
-        * ``wait=False`` and *val* cannot be immediately put onto the channel
-        * a `reduced` value is returned during transformation
+        * ``wait=False`` and `val` cannot be immediately put onto the channel
+        * a :any:`reduced` value is returned during transformation
 
         Args:
             val: A non-None value to put onto the channel.
             wait: An optional bool that if False, fails the put operation when
                 it cannot complete immediately.
 
-        Returns: An awaitable that will evaluate to True if *val* is accepted
+        Returns: An awaitable that will evaluate to True if `val` is accepted
             onto the channel or False if its not.
 
         Raises:
@@ -294,7 +296,7 @@ class chan:
         return future
 
     def b_put(self, val, *, wait=True):
-        """Same as `put()` except it blocks instead of returning an awaitable.
+        """Same as :meth:`put` except it blocks instead of returning an awaitable.
 
         Does not require an event loop.
         """
@@ -305,7 +307,7 @@ class chan:
         return prom.deref()
 
     def b_get(self, *, wait=True):
-        """Same as `get()` except it blocks instead of returning an awaitable.
+        """Same as :meth:`get` except it blocks instead of returning an awaitable.
 
         Does not require an event loop.
         """
@@ -316,7 +318,7 @@ class chan:
         return prom.deref()
 
     def f_put(self, val, f=None):
-        """Asynchronously puts *val* onto the channel and calls *f* when complete.
+        """Asynchronously puts `val` onto the channel and calls `f` when complete.
 
         Does not require an event loop.
 
@@ -339,7 +341,7 @@ class chan:
         return ret[0]
 
     def f_get(self, f):
-        """Asynchronously takes a value from the channel and calls *f* with it.
+        """Asynchronously takes a value from the channel and calls `f` with it.
 
         Does not require an event loop.
 
@@ -382,7 +384,7 @@ class chan:
     def to_iter(self):
         """Returns an iterator over the channel's values.
 
-        Each call to the iterator's *next()* method may block.
+        Calling ``next()`` on the returned iterator method may block.
         Does not require an event loop.
         """
         while True:
@@ -394,14 +396,14 @@ class chan:
     def _p_put(self, handler, val):
         """Commits or enqueues a put operation to the channel.
 
-        If the put operation completes immediately, then the *handler* will be
+        If the put operation completes immediately, then the `handler` will be
         committed but its callback will not be invoked. The completion status
         of the operation will be wrapped in a tuple and returned. The status
-        will be True if *val* was accepted onto the channel or False otherwise.
+        will be True if `val` was accepted onto the channel or False otherwise.
 
-        If the operation is unable to complete immediately, then *handler* and
-        *val* will be enqueued and None will be returned. When the operation
-        eventually completes, the *handler* will be committed and its callback
+        If the operation is unable to complete immediately, then `handler` and
+        `val` will be enqueued and None will be returned. When the operation
+        eventually completes, the `handler` will be committed and its callback
         will be invoked with the completion status.
 
         Args:
@@ -456,15 +458,15 @@ class chan:
     def _p_get(self, handler):
         """Commits or enqueues a get operation to the channel.
 
-        If the get operation completes immediately, then the *handler* will be
+        If the get operation completes immediately, then the `handler` will be
         committed but its callback will not be invoked. If the channel is not
         already exhausted, then the value taken from the channel will be
         wrapped in a tuple and returned. If the channel is already exhausted
         then the tuple, ``(None,)``, will be returned.
 
-        If the operation is unable to complete immediately, then *handler* and
-        *val* will be enqueued and None will be returned. When the operation
-        eventually completes, the *handler* will be committed and its callback
+        If the operation is unable to complete immediately, then `handler` and
+        `val` will be enqueued and None will be returned. When the operation
+        eventually completes, the `handler` will be committed and its callback
         will be invoked with the value taken from the channel or None if its
         exhausted.
 
@@ -631,37 +633,37 @@ def alts(ops, *, priority=False, default=_Undefined):
     Returns an awaitable representing the first and only channel operation to finish.
 
     Accepts an iterable of operations that either get from or put to a channel
-    and commits only one of them. If no *default* is provided, then only the
-    first op to finish will be committed. If *default* is provided and none of
-    the *ops* finish immediately, then no operation will be committed and
-    *default* will instead be used to complete the returned awaitable.
+    and commits only one of them. If no `default` is provided, then only the
+    first op to finish will be committed. If `default` is provided and none of
+    the `ops` finish immediately, then no operation will be committed and
+    `default` will instead be used to complete the returned awaitable.
 
     Args:
         ops: An iterable of operations that either get from or put to a channel.
             A get operation is represented as simply a channel to get from.
             A put operation is represented as an iterable of the form
-            ``[channel, val]``, where *val* is an item to put onto the
-            *channel*.
+            ``[channel, val]``, where `val` is an item to put onto the
+            `channel`.
         priority: An optional bool. If True, operations will be tried in order.
             If False, operations will be tried in random order.
         default: An optional value to use in case no operation finishes
             immediately.
 
     Returns: An awaitable that evaluates to a tuple of the form ``(val, ch)``.
-        If *default* is not provided, then *val* will be what the first
-        successful operation returned and *ch* will be the channel used in that
-        operation. If *default* is provided and none of the operations complete
+        If `default` is not provided, then `val` will be what the first
+        successful operation returned and `ch` will be the channel used in that
+        operation. If `default` is provided and none of the operations complete
         immediately, then the awaitable will evaluate to
         ``(default, 'default')``.
 
     Raises:
-        ValueError: If *ops* is empty or contains both a get and put operation
+        ValueError: If `ops` is empty or contains both a get and put operation
             to the same channel.
         RuntimeError: If the calling thread has no running event loop.
 
     See Also:
-        `alt()`
-        `b_alts()`
+        :func:`alt`
+        :func:`b_alts`
     """
     flag = create_flag()
     future = FlagFuture(flag)
@@ -675,7 +677,7 @@ def b_alts(ops, *, priority=False, default=_Undefined):
     """
     b_alts(opts, *, priority=False, default=Undefined)
 
-    Same as `alts()` except it blocks instead of returning an awaitable."""
+    Same as :func:`alts` except it blocks instead of returning an awaitable."""
     prom = Promise()
     ret = _alts(create_flag(), prom.deliver, ops, priority, default)
     return prom.deref() if ret is None else ret
@@ -685,7 +687,7 @@ def alt(*ops, priority=False, default=_Undefined):
     """
     alt(*ops, priority=False, default=Undefined)
 
-    A variadic version of `alts()`."""
+    A variadic version of :func:`alts`."""
     return alts(ops, priority=priority, default=default)
 
 
@@ -693,5 +695,5 @@ def b_alt(*ops, priority=False, default=_Undefined):
     """
     b_alt(*ops, priority=False, default=Undefined)
 
-    A variadic version of `b_alts()`."""
+    A variadic version of :func:`b_alts`."""
     return b_alts(ops, priority=priority, default=default)
