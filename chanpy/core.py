@@ -1,17 +1,17 @@
 """Core functions for working with channels.
 
-This module aims to bring the best features of Clojure's core.async library to
+This library aims to bring the best features of Clojure's core.async library to
 Python.
 
 The center around any CSP library are channels. ChanPy's channels have full
 support for use with asyncio coroutines, callback based code, and
-multi-threaded designs. The functions in this module are designed to primarily
-accept and produce channels and by doing so, can be used almost identically
-with each of the aforementioned styles. See chan for more details about
-channels.
+multi-threaded designs. The functions in *chanpy.core* are designed to
+primarily accept and produce channels and by doing so, can be used almost
+identically with each of the aforementioned styles. See `chan` for more details
+about channels.
 
 Like core.async, ChanPy channels have direct support for transformations via
-transducers. The transducers module provides many transducers as well as
+transducers. The `transducers` module provides many transducers as well as
 functions to help create and use them.
 
 Another very valuable feature from core.async is the ability to cheaply create
@@ -21,14 +21,15 @@ easily be used from within coroutines which can then be added as tasks to an
 event loop. Chanpy additionally offers ways for these tasks to be added from
 threads without a running event loop.
 
-An important thing to note about this module is that unless explicitly stated
+An important thing to note about *chanpy.core* is that unless explicitly stated
 otherwise, any function involving asynchronous work should be assumed to
 require an asyncio event loop. Many of these functions leverage the use of an
 event loop for the efficiency reasons stated earlier. Threads with a running
 event loop will be able to directly call these functions but threads without
-one will be required to register one to themselves using set_loop prior to
-doing so. Calling set_loop will be unnecessary for threads that were created
-with thread_call as those threads will have already been registered.
+one will be required to register one to themselves using `set_loop()` prior to
+doing so. Calling `set_loop()` will be unnecessary for threads that were
+created with `thread_call()` as those threads will have already been
+registered.
 """
 
 import asyncio as _asyncio
@@ -48,7 +49,7 @@ class _Undefined:
 
 
 def buffer(n):
-    """Returns a fixed buffer with a capacity of n.
+    """Returns a fixed buffer with a capacity of *n*.
 
     Puts to channels with this buffer will block if capacity is reached.
 
@@ -59,7 +60,7 @@ def buffer(n):
 
 
 def dropping_buffer(n):
-    """Returns a windowing buffer with a capacity of n.
+    """Returns a windowing buffer with a capacity of *n*.
 
     Puts to channels with this buffer will appear successful after the capacity
     is reached but will not be added to the buffer.
@@ -71,7 +72,7 @@ def dropping_buffer(n):
 
 
 def sliding_buffer(n):
-    """Returns a windowing buffer with a capacity of n.
+    """Returns a windowing buffer with a capacity of *n*.
 
     Puts to channels with this buffer will complete successfully after the
     capacity is reached but will evict the oldest element in the buffer.
@@ -83,7 +84,7 @@ def sliding_buffer(n):
 
 
 def is_unblocking_buffer(buf):
-    """Returns True if puts to buf will never block."""
+    """Returns True if puts to buffer will never block."""
     return isinstance(buf, _bufs.UnblockingBufferMixin)
 
 
@@ -96,14 +97,14 @@ def promise_chan(xform=None, ex_handler=None):
     the first put.
 
     Args:
-        xform: An optional transducer. See chan().
-        ex_handler: An optional exception handler. See chan().
+        xform: An optional transducer. See `chan`.
+        ex_handler: An optional exception handler. See `chan`.
     """
     return chan(_bufs.PromiseBuffer(), xform, ex_handler)
 
 
 def is_chan(ch):
-    """Returns True if ch is a channel."""
+    """Returns True if *ch* is a channel."""
     return isinstance(ch, chan)
 
 
@@ -114,16 +115,16 @@ _local_data = _threading.local()
 def get_loop():
     """Returns the event loop for the current thread.
 
-    If set_loop() has been used to register an event loop to the current thread
-    then that loop will be returned. If no such event loop exists then returns
-    the running loop in the current thread.
+    If `set_loop()` has been used to register an event loop to the current
+    thread, then that loop will be returned. If no such event loop exists, then
+    returns the running loop in the current thread.
 
     Raises:
         RuntimeError: If no event loop has been registered and no loop is
             running in the current thread.
 
     See Also:
-        set_loop
+        `set_loop()`
     """
     loop = getattr(_local_data, 'loop', None)
     return _asyncio.get_running_loop() if loop is None else loop
@@ -139,12 +140,15 @@ def set_loop(loop):
 
     A single event loop may be registered to any number of threads at once.
 
+    Args:
+        loop: An asyncio event loop.
+
     Returns: A context manager that on exit will unregister loop and reregister
-        the event loop that was originally set before set_loop was invoked.
+        the event loop that was originally set.
 
     See Also:
-        get_loop
-        thread_call
+        `get_loop()`
+        `thread_call()`
     """
     prev_loop = getattr(_local_data, 'loop', None)
     _local_data.loop = loop
@@ -168,17 +172,17 @@ def _in_loop(loop):
 
 
 def thread_call(f, executor=None):
-    """Registers current loop to a separate thread and then calls f from it.
+    """Registers current loop to a separate thread and then calls *f* from it.
 
-    Calls f in another thread, returning immediately to the calling thread.
+    Calls *f* in another thread, returning immediately to the calling thread.
     The separate thread will have the loop from the calling thread registered
-    to it while f runs.
+    to it while *f* runs.
 
     Args:
         f: A function accepting no arguments.
-        executor: An optional ThreadPoolExecutor to submit f to.
+        executor: An optional :class:`ThreadPoolExecutor` to submit *f* to.
 
-    Returns: A channel containing the return value of f.
+    Returns: A channel containing the return value of *f*.
     """
     loop = get_loop()
     ch = chan(1)
@@ -200,15 +204,16 @@ def thread_call(f, executor=None):
 def go(coro):
     """Adds a coroutine object as a task to the current event loop.
 
-    Adds coro as a task to the event loop returned from get_loop().
+    *coro* will be added as a task to the event loop returned from
+    `get_loop()`.
 
     Args:
         coro: A coroutine object.
 
-    Returns: A channel containing the return value of coro.
+    Returns: A channel containing the return value of *coro*.
 
     See Also:
-        goroutine
+        `goroutine()`
     """
     loop = get_loop()
     ch = chan(1)
@@ -243,8 +248,8 @@ def goroutine(coro):
     objects). When invoked, a goroutine will create a coroutine object by
     passing all of its arguments to the provided coroutine. The newly created
     coroutine object will then be added to the current event loop as a task via
-    a call to go(). The return value of go will then be returned (a channel
-    containing the result of the task).
+    a call to `go()`. The return value of `go()` will then be returned
+    (a channel containing the result of the task).
 
     The prime benefit of using goroutines over regular coroutines is that they
     can easily be used from within both coroutines and regular functions. This
@@ -255,7 +260,7 @@ def goroutine(coro):
         coro: A coroutine (not a coroutine object).
 
     See Also:
-        go
+        `go()`
     """
     @_functools.wraps(coro)
     def goro(*args, **kwargs):
@@ -283,27 +288,28 @@ async def _reduce(rf, init, ch):
 def reduce(rf, init, ch=_Undefined):
     """
     reduce(rf, init, ch) -> result_ch
-    reduce(rf, ch) -> result_ch
+    *reduce(rf, ch) -> result_ch*
 
     Asynchronously reduces a channel.
 
-    Asynchronously collects values from ch and reduces them using rf, placing
-    the final result in the returned channel. If ch is exhausted then init will
-    be used as the result. If ch is not exhausted then the first call to rf
-    will be rf(init, val) where val is taken from ch. rf will continue to get
-    called as rf(prev_return, next_ch_val) until either ch is exhausted or rf
-    returns a reduced value.
+    Asynchronously collects values from *ch* and reduces them using *rf*,
+    placing the final result in the returned channel. If *ch* is exhausted,
+    then *init* will be used as the result. If *ch* is not exhausted, then the
+    first call to *rf* will be ``rf(init, val)`` where *val* is taken from
+    *ch*. *rf* will continue to get called as ``rf(prev_return, next_val)``
+    until either *ch* is exhausted or *rf* returns a `reduced` value.
 
     Args:
-        rf: A reducing function accepting 2 args. If init is not provided then
-            rf must return a value to be used as init when called with 0 args.
+        rf: A reducing function accepting 2 args. If *init* is not provided,
+            then *rf* must return a value to be used as *init* when called with
+            0 args.
         init: An optional initial value.
         ch: A channel to get values from.
 
     Returns: A channel containing the result of the reduction.
 
     See Also:
-        transduce
+        `transduce()`
     """
     if ch is _Undefined:
         return _reduce(rf, rf(), init)
@@ -320,27 +326,28 @@ async def _transduce(xform, rf, init, ch):
 def transduce(xform, rf, init, ch=_Undefined):
     """
     transduce(xform, rf, init, ch) -> result_ch
-    transduce(xform, rf, ch) -> result_ch
+    *transduce(xform, rf, ch) -> result_ch*
 
     Asynchronously reduces a channel with a transformation.
 
-    Asynchronously collects values from ch and reduces them using a transformed
-    reducing function equal to xform(rf). See reduce() for more information on
-    reduction. After the transformed reducing function has received all input
-    it will be called once more with a single argument, the result thus far.
+    Asynchronously collects values from *ch* and reduces them using a
+    transformed reducing function equal to ``xform(rf)``. See `reduce()` for
+    more information on reduction. After the transformed reducing function has
+    received all input it will be called once more with a single argument, the
+    result thus far.
 
     Args:
         xform: A transducer.
-        rf: A reducing function accepting both 1 and 2 arguments. If init is
-            not provided then rf must return a value to be used as init when
-            called. with 0 arguments.
+        rf: A reducing function accepting both 1 and 2 arguments. If *init* is
+            not provided, then *rf* must return a value to be used as *init*
+            when called with 0 arguments.
         init: An optional initial value.
         ch: A channel to get values from.
 
     Returns: A channel containing the result of the reduction.
 
     See Also:
-        reduce
+        `reduce()`
     """
     if ch is _Undefined:
         return _transduce(xform, rf, rf(), init)
@@ -348,9 +355,9 @@ def transduce(xform, rf, init, ch=_Undefined):
 
 
 def to_list(ch):
-    """Asynchronously reduces the values from ch to a list.
+    """Asynchronously reduces the values from a channel to a list.
 
-    Returns: A channel containing a list of values from ch.
+    Returns: A channel containing a list of values from *ch*.
     """
     return reduce(_xf.append, ch)
 
@@ -362,10 +369,13 @@ async def onto_chan(ch, coll, *, close=True):
     Args:
         ch: A channel to put values onto.
         coll: An iterable to get values from.
-        close: An optional bool. If true, ch will be closed after transfer
+        close: An optional bool. If True, *ch* will be closed after transfer
             finishes.
 
-    Returns: A channel that closes after transfer has finished.
+    Returns: A channel that closes after transfer finishes.
+
+    See Also:
+        `to_chan()`
     """
     for x in coll:
         await ch.put(x)
@@ -374,10 +384,13 @@ async def onto_chan(ch, coll, *, close=True):
 
 
 def to_chan(coll):
-    """Returns a channel that emits all values from coll and then closes.
+    """Returns a channel that emits all values from *coll* and then closes.
 
     Args:
         coll: An iterable to get values from.
+
+    See Also:
+        `onto_chan()`
     """
     ch = chan()
     onto_chan(ch, coll)
@@ -385,15 +398,15 @@ def to_chan(coll):
 
 
 def pipe(from_ch, to_ch, *, close=True):
-    """Asynchronously transfers all values from from_ch to to_ch.
+    """Asynchronously transfers all values from *from_ch* to *to_ch*.
 
     Args:
         from_ch: A channel to get values from.
         to_ch: A channel to put values onto.
-        close: An optional bool. If true, to_ch will be closed after transfer
+        close: An optional bool. If True, *to_ch* will be closed after transfer
             finishes.
 
-    Returns: to_ch.
+    Returns: *to_ch*.
     """
     async def proc():
         async for val in from_ch:
@@ -422,13 +435,14 @@ def _pipeline_transform_wrapper(x):
 
 def pipeline(n, to_ch, xform, from_ch, *,
              close=True, ex_handler=None, mode='thread', chunksize=1):
-    """Transforms values from from_ch to to_ch in parallel.
+    """Transforms values from *from_ch* to *to_ch* in parallel.
 
-    Values from from_ch will be transformed in parallel using a pool of threads
-    or processes. The transducer will be applied to values from from_ch
-    independently (not across values) and may produce zero or more outputs per
-    input. The transformed values will be put onto to_ch in order relative to
-    the inputs. If to_ch closes then from_ch will no longer be consumed from.
+    Values from *from_ch* will be transformed in parallel using a pool of
+    threads or processes. The transducer will be applied to values from
+    *from_ch* independently (not across values) and may produce zero or more
+    outputs per input. The transformed values will be put onto *to_ch* in order
+    relative to the inputs. If *to_ch* closes, then *from_ch* will no longer be
+    consumed from.
 
     Args:
         n: A positive int specifying the maximum number of workers to run in
@@ -437,21 +451,21 @@ def pipeline(n, to_ch, xform, from_ch, *,
         xform: A transducer that will be applied to each value independently
             (not across values).
         from_ch: A channel to get values from.
-        close: An optional bool. If true, to_ch will be closed after transfer
+        close: An optional bool. If True, *to_ch* will be closed after transfer
             finishes.
-        ex_handler: An exception handler. See chan().
-        mode: Either 'thread' or 'process'. Specifies whether to use a thread
-            or process pool to parallelize work. Note that if CPython is being
-            used with 'thread' then xform must release the GIL at some point in
-            order to achieve any parallelism.
-        chunksize: An optional positive int that's only relevant when in
-            processing mode. Specifies the approximate amount of values each
+        ex_handler: An optional exception handler. See `chan`.
+        mode: Either ``'thread'`` or ``'process'``. Specifies whether to use a
+            thread or process pool to parallelize work. Note that if CPython is
+            being used with ``'thread'``, then *xform* must release the GIL at
+            some point in order to achieve any parallelism.
+        chunksize: An optional positive int that's only relevant when
+            ``mode='process'``. Specifies the approximate amount of values each
             worker will receive at once.
 
-    Returns: A channel that closes after transfer has finished.
+    Returns: A channel that closes after transfer finishes.
 
     See Also:
-        pipeline_async
+        `pipeline_async()`
     """
 
     def transform(val):
@@ -490,32 +504,34 @@ def pipeline(n, to_ch, xform, from_ch, *,
 
 
 def pipeline_async(n, to_ch, af, from_ch, *, close=True):
-    """Transforms values from from_ch to to_ch in parallel using an async function.
+    """Transforms values from *from_ch* to *to_ch* in parallel using an async function.
 
-    Values will be gathered from from_ch and passed to af along with a channel
-    for it's outputs to be placed onto. af will be called as af(val, result_ch)
-    and should return immediately, having spawned some asynchronous operation
-    that will place zero or more outputs onto result_ch. Up to n of these
-    asynchronous "processes" will be run at once, each of which will be
-    required to close their corresponding result_ch when finished. Values from
-    these result channels will be placed onto to_ch in order relative to the
-    inputs from from_ch. If to_ch closes, then from_ch will no longer be
-    consumed from and any unclosed result channels will be closed.
+    Values will be gathered from *from_ch* and passed to *af* along with a
+    channel for it's outputs to be placed onto. *af* will be called as
+    ``af(val, result_ch)`` and should return immediately, having spawned some
+    asynchronous operation that will place zero or more outputs onto
+    *result_ch*. Up to *n* of these asynchronous "processes" will be run at
+    once, each of which will be required to close their corresponding
+    *result_ch* when finished. Values from these result channels will be placed
+    onto *to_ch* in order relative to the inputs from *from_ch*. If *to_ch*
+    closes, then *from_ch* will no longer be consumed from and any unclosed
+    result channels will be closed.
 
     Args:
         n: A positive int representing the maximum number of asynchronous
             "processes" to run at once.
         to_ch: A channel to place the results onto.
-        af: A non-blocking function that will be called as af(val, result_ch).
-            This function will presumably spawn some kind of asynchronous
-            operation that will place outputs onto result_ch. result_ch must be
-            closed before the asynchronous operation finishes.
-        from_ch: A channel to get values form.
-        close: An optional bool. If true, to_ch will be closed after transfer
+        af: A non-blocking function that will be called as
+            ``af(val, result_ch)``. This function will presumably spawn some
+            kind of asynchronous operation that will place outputs onto
+            *result_ch*. *result_ch* must be closed before the asynchronous
+            operation finishes.
+        from_ch: A channel to get values from.
+        close: An optional bool. If True, *to_ch* will be closed after transfer
             finishes.
 
     See Also:
-        pipeline
+        `pipeline()`
     """
     if n < 1 or n != int(n):
         raise ValueError('n must be a positive int')
@@ -546,13 +562,16 @@ def pipeline_async(n, to_ch, af, from_ch, *, close=True):
 def merge(chs, buf_or_n=None):
     """Returns a channel that emits values from the provided source channels.
 
-    Transfers all values from chs onto the returned channel. The returned
-    channel closes after the transfer completes.
+    Transfers all values from *chs* onto the returned channel. The returned
+    channel closes after the transfer finishes.
 
     Args:
         chs: An iterable of source channels.
         buf_or_n: An optional buffer to use with the returned channel.
-            Can also be represented as a positive number. See chan().
+            Can also be represented as a positive number. See `chan`.
+
+    See Also:
+        `mix`
     """
     to_ch = chan(buf_or_n)
 
@@ -574,7 +593,7 @@ def _every(ops):
     """Returns a channel containing a tuple of the operation results.
 
     Args:
-        ops: An iterable of channel operations. See alts().
+        ops: An iterable of channel operations. See `alts()`.
     """
     ops = tuple(ops)
     lock = _threading.Lock()
@@ -604,20 +623,20 @@ def _every(ops):
 
 
 def map(f, chs, buf_or_n=None):
-    """Repeatedly takes a value from each channel and applies f.
+    """Repeatedly takes a value from each channel and applies *f*.
 
     Asynchronously takes one value per source channel and passes the resulting
-    list of values as positional arguments to f. Each return value of f will
-    be put onto the returned channel. The returned channel closes if any one
-    of the source channels closes.
+    list of values as positional arguments to *f*. Each return value of *f*
+    will be put onto the returned channel. The returned channel closes if any
+    one of the source channels closes.
 
     Args:
-        f: A non-blocking function accepting len(chs) positional arguments.
+        f: A non-blocking function accepting ``len(chs)`` positional arguments.
         chs: An iterable of source channels.
         buf_or_n: An optional buffer to use with the returned channel.
-            Can also be represented as a positive number. See chan().
+            Can also be represented as a positive number. See `chan`.
 
-    Returns: A channel containing the return values of f.
+    Returns: A channel containing the return values of *f*.
     """
     chs = tuple(chs)
     to_ch = chan(buf_or_n)
@@ -635,18 +654,18 @@ def map(f, chs, buf_or_n=None):
 
 
 class mult:
-    """A mult(iple) of the source ch that puts each of its values to its taps.
+    """A mult(iple) of the source channel that puts each of its values to its taps.
 
-    tap() can be used to subscribe a channel to the mult and therefore receive
-    copies of the values from ch. Taps can later be unsubscribed using untap()
-    or untap_all().
+    `tap()` can be used to subscribe a channel to the mult and therefore
+    receive copies of the values from *ch*. Taps can later be unsubscribed
+    using `untap()` or `untap_all()`.
 
-    No tap will receive the next value from ch until all taps have accepted the
-    current value. If no tap exists, values will still be consumed from ch but
-    will be discarded.
+    No tap will receive the next value from *ch* until all taps have accepted
+    the current value. If no tap exists, values will still be consumed from
+    *ch* but will be discarded.
 
     Args:
-        ch: A channel to get values form.
+        ch: A channel to get values from.
     """
 
     def __init__(self, ch):
@@ -661,7 +680,7 @@ class mult:
 
         Args:
             ch: A channel to receive values from the mult's source channel.
-            close: An optional bool. If true, ch will be closed after the
+            close: An optional bool. If True, *ch* will be closed after the
                 source channel becomes exhausted.
         """
         with self._lock:
@@ -697,23 +716,23 @@ class mult:
 
 
 class pub:
-    """A pub(lication) of the source ch divided into topics.
+    """A pub(lication) of the source channel divided into topics.
 
-    The values of ch will be categorized into topics defined by topic_fn.
-    Each topic will be given its own mult for channels to subscribe to.
-    Channels can be subscribed to a given topic with sub() and unsubscribed
-    with unsub() or unsub_all().
+    The values of *ch* will be categorized into topics defined by *topic_fn*.
+    Each topic will be given its own `mult` for channels to subscribe to.
+    Channels can be subscribed to a given topic with `sub()` and unsubscribed
+    with `unsub()` or `unsub_all()`.
 
     Args:
         ch: A channel to get values from.
-        topic_fn: A function that given a value from ch returns a topic
+        topic_fn: A function that given a value from *ch* returns a topic
             identifier.
         buf_fn: An optional function that given a topic returns a buffer to be
-            used with that topic's mult channel. If not provided, channels will
-            be unbuffered.
+            used with that topic's `mult` channel. If not provided, channels
+            will be unbuffered.
 
     See Also:
-        mult
+        `mult`
     """
     def __init__(self, ch, topic_fn, buf_fn=None):
         self._lock = _threading.Lock()
@@ -724,13 +743,13 @@ class pub:
         go(self._proc())
 
     def sub(self, topic, ch, *, close=True):
-        """Subscribes a channel to the given topic.
+        """Subscribes a channel to the given *topic*.
 
         Args:
             topic: A topic identifier.
             ch: A channel to subscribe.
-            close: An optional bool. If true, ch will be closed when the source
-                channel is exhausted.
+            close: An optional bool. If True, *ch* will be closed when the
+                source channel is exhausted.
          """
         with self._lock:
             if topic not in self._mults:
@@ -738,7 +757,7 @@ class pub:
             self._mults[topic].tap(ch, close=close)
 
     def unsub(self, topic, ch):
-        """Unsubscribes a channel from the given topic."""
+        """Unsubscribes a channel from the given *topic*."""
         with self._lock:
             m = self._mults.get(topic, None)
             if m is not None:
@@ -751,7 +770,7 @@ class pub:
         """
         unsub_all(topic=Undefined)
 
-        Unsubscribes all subs from a topic or all topics if not provided."""
+        Unsubscribes all subs from a *topic* or all topics if not provided."""
         with self._lock:
             topics = tuple(self._mults) if topic is _Undefined else [topic]
             for t in topics:
@@ -775,24 +794,28 @@ class pub:
 
 
 class mix:
-    """Consumes values from each of its source channels and puts them onto ch.
+    """Consumes values from each of its source channels and puts them onto *ch*.
 
-    A source channel can be added with admix() and removed with unmix() or
-    unmix_all().
+    A source channel can be added with `admix()` and removed with `unmix()` or
+    `unmix_all()`.
 
     A source channel can be given a set of attribute flags to modify how it is
-    consumed with toggle(). If a channel has its 'pause' attribute set to true
-    then the mix will stop consuming from it. Else if its 'mute' attribute is
-    set then the channel will still be consumed but its values discarded.
+    consumed with `toggle()`. If a channel has its ``'pause'`` attribute set to
+    True, then the mix will stop consuming from it. Else if its ``'mute'``
+    attribute is set, then the channel will still be consumed but its values
+    discarded.
 
-    A source channel may also be soloed by setting the 'solo' attribute. If any
-    source channel is soloed then all of its other attributes will be ignored.
-    Furthermore, non-soloed channels will have their attributes ignored and
-    instead will take on whatever attribute has been set with solo_mode()
-    (defaults to 'mute' if solo_mode() hasn't been invoked).
+    A source channel may also be soloed by setting the ``'solo'`` attribute. If
+    any source channel is soloed, then all of its other attributes will be
+    ignored. Furthermore, non-soloed channels will have their attributes
+    ignored and instead will take on whatever attribute has been set with
+    `solo_mode()` (defaults to ``'mute'`` if `solo_mode()` hasn't been invoked).
 
     Args:
         ch: A channel to put values onto.
+
+    See Also:
+        `merge()`
     """
     def __init__(self, ch):
         self._lock = _threading.Lock()
@@ -803,18 +826,18 @@ class mix:
         go(self._proc())
 
     def toggle(self, state_map):
-        """Merges state_map with the current state of the mix.
+        """Merges *state_map* with the current state of the mix.
 
-        The provided state_map is used to update the attributes of the mix's
-        source channels. state_map will be merged with the current state of the
-        mix. If state_map contains a channel that is not currently in the mix
-        then that channel will be added to the mix with the corresponding
-        attributes in state_map.
+        *state_map* will be used to update the attributes of the mix's source
+        channels by merging its contents with the current state of the mix.
+        If *state_map* contains a channel that is not currently in the mix,
+        then that channel will be added with the given attributes.
 
         Args:
-            state_map: A dictionary of the form ch->attribute_map where
-                attribute_map is a dictionary of the form attribute->bool.
-                See mix for a list of supported attributes and corresponding
+            state_map: A dictionary of the form ``{channel: attribute_map}``
+                where *attribute_map* is a dictionary of the form
+                ``{attribute: bool}``. Supported attributes are
+                ``{'solo', 'pause', 'mute'}``. See `mix` for corresponding
                 behaviors.
         """
         for ch, state in state_map.items():
@@ -837,11 +860,11 @@ class mix:
             self._sync_state()
 
     def admix(self, ch):
-        """Adds ch as a source channel of the mix."""
+        """Adds *ch* as a source channel of the mix."""
         self.toggle({ch: {}})
 
     def unmix(self, ch):
-        """Removes ch from the set of source channels."""
+        """Removes *ch* from the set of source channels."""
         with self._lock:
             self._state_map.pop(ch, None)
             self._sync_state()
@@ -853,14 +876,14 @@ class mix:
             self._sync_state()
 
     def solo_mode(self, mode):
-        """Sets the mode for non-soloed source channels.
+        """Sets the *mode* for non-soloed source channels.
 
         For as long as there is at least one soloed channel, non-soloed
         source channels will have their attributes ignored and will instead
-        take on the provided mode.
+        take on the provided *mode*.
 
         Args:
-            mode: Either 'pause' or 'mute'. See mix for behaviors.
+            mode: Either ``'pause'`` or ``'mute'``. See `mix` for behaviors.
         """
         if mode not in ['pause', 'mute']:
             raise ValueError(f'solo-mode is invalid: {mode}')
@@ -912,19 +935,19 @@ class mix:
 
 
 def split(pred, ch, true_buf=None, false_buf=None):
-    """Splits the values of channel into 2 channels based on the predicate.
+    """Splits the values of a channel into two channels based on a predicate.
 
-    Returns a tuple of the form (true_ch, false_ch) where true_ch contains all
-    the values from ch where the predicate returns true and false_ch contains
-    all the values that return false.
+    Returns a tuple of the form ``(true_ch, false_ch)`` where *true_ch*
+    contains all the values from *ch* where the predicate returns True and
+    *false_ch* contains all the values that return False.
 
     Args:
         pred: A predicate function.
         ch: A channel to get values from.
-        true_buf: An optional buffer to use with true_ch. See chan().
-        false_buf: An optional buffer to use with false_ch. See chan().
+        true_buf: An optional buffer to use with *true_ch*. See `chan`.
+        false_buf: An optional buffer to use with *false_ch*. See `chan`.
 
-    Returns: A tuple of the form (true_ch, false_ch).
+    Returns: A tuple of the form ``(true_ch, false_ch)``.
     """
     true_ch, false_ch = chan(true_buf), chan(false_buf)
 

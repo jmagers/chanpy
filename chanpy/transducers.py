@@ -1,20 +1,18 @@
-"""General transducers and accompanying functions.
+"""Transducers, composable algorithmic transformations.
 
-Transducers are composable algorithmic transformations.
+Notable features of transducers:
 
-Transducer features:
-
-- Are decoupled from the context in which they are used. This means they can be
+* Are decoupled from the context in which they are used. This means they can be
   reused with any transducible process, including iterables and channels.
-- Are composable with simple function composition. See comp().
-- Support early termination via reduced values. See reduced().
+* Are composable with simple function composition. See `comp()`.
+* Support early termination via `reduced` values.
 
 Creating transducers:
     Transducers are also known as reducing function transformers. They are
     simply functions that accept a reducing function as input and return a new
     reducing function as output. A reducing function is defined as a function
     that accepts 2 arguments (step arity), 1 argument (completion arity), and
-    optionally 0 arguments (init arity). multi_arity() can be used to help
+    optionally 0 arguments (init arity). `multi_arity()` can be used to help
     create these multi-arity reducing functions.
 
 See https://clojure.org/reference/transducers for more information about
@@ -37,7 +35,7 @@ def identity(x):
 
 
 def comp(*xforms):
-    """Returns a new transducer equal to the composition of xforms.
+    """Returns a new transducer equal to the composition of *xforms*.
 
     The returned transducer passes values through the given transformations
     from left to right.
@@ -49,12 +47,12 @@ def comp(*xforms):
 
 
 def multi_arity(*funcs):
-    """Returns a new multi-arity function which dispatches to funcs.
+    """Returns a new multi-arity function which dispatches to *funcs*.
 
     The returned function will dispatch to the provided functions based on the
     number of positional arguments it was called with. If called with zero
-    arguments it will dispatch to the first function in funcs, if called with
-    one argument it will dispatch to the second function in funcs, etc.
+    arguments it will dispatch to the first function in *funcs*, if called with
+    one argument it will dispatch to the second function in *funcs*, etc.
 
     Args:
         funcs: Functions to dispatch to. Each function represents a different
@@ -72,41 +70,38 @@ def multi_arity(*funcs):
     return dispatch
 
 
-class _Reduced:
-    def __init__(self, value):
-        self.value = value
+class reduced:
+    """Wraps *x* in such a way that a reduce will terminate with *x*."""
 
-
-def reduced(x):
-    """Wraps x in such a way that a reduce will terminate with x."""
-    return _Reduced(x)
+    def __init__(self, x):
+        self._value = x
 
 
 def is_reduced(x):
-    """Returns True if x is the result from a call to reduced."""
-    return isinstance(x, _Reduced)
+    """Returns True if *x* is the result from a call to `reduced`."""
+    return isinstance(x, reduced)
 
 
 def ensure_reduced(x):
-    """Returns reduced(x) if x is not already a reduced value."""
+    """Returns ``reduced(x)`` if *x* is not already a `reduced` value."""
     return x if is_reduced(x) else reduced(x)
 
 
 def unreduced(x):
-    """Returns x if it's not a reduced value else returns the unwrapped value."""
-    return x.value if is_reduced(x) else x
+    """Returns *x* if it's not a `reduced` value else returns the unwrapped value."""
+    return x._value if is_reduced(x) else x
 
 
 def completing(rf, cf=identity):
-    """Returns a wrapper around rf that calls cf when invoked with one argument.
+    """Returns a wrapper around *rf* that calls *cf* when invoked with one argument.
 
     Args:
         rf: A reducing function.
         cf: An optional function that accepts a single argument. Used as the
             completion arity for the returned reducing function.
 
-    Returns: A reducing function that dispatches to cf when called with a
-        single argument or rf when called with any other number of arguments.
+    Returns: A reducing function that dispatches to *cf* when called with a
+        single argument or *rf* when called with any other number of arguments.
     """
     @_functools.wraps(rf)
     def wrapper(*args):
@@ -128,26 +123,26 @@ def _ireduce(rf, init, coll):
 def ireduce(rf, init, coll=_Undefined):
     """
     ireduce(rf, init, coll) -> reduction result
-    ireduce(rf, coll) -> reduction result
+    *ireduce(rf, coll) -> reduction result*
 
     Returns the result of reducing an iterable.
 
-    Reduces coll by repeatedly calling rf with 2 arguments. If coll is empty,
-    then init will be returned. If coll is not empty, then the first call to rf
-    will be rf(init, first_coll_element). rf will continue to get called as
-    rf(prev_rf_return_value, next_coll_element) until either coll is exhausted
-    or rf returns a reduced value.
+    Reduces *coll* by repeatedly calling *rf* with 2 arguments. If *coll* is
+    empty, then *init* will be returned. If *coll* is not empty, then the first
+    call to *rf* will be ``rf(init, first_coll_value)``. *rf* will continue to
+    get called as ``rf(prev_rf_return, next_coll_value)`` until either *coll*
+    is exhausted or *rf* returns a `reduced` value.
 
     Args:
-        rf: A reducing function accepting 2 arguments. If init is not provided,
-            then rf must return a value to be used as init when called with 0
-            arguments.
+        rf: A reducing function accepting 2 arguments. If *init* is not
+            provided, then *rf* must return a value to be used as *init* when
+            called with 0 arguments.
         init: An optional initial value.
         coll: An iterable.
 
     See Also:
-        reduced
-        itransduce
+        `reduced()`
+        `itransduce()`
     """
     if coll is _Undefined:
         return _ireduce(rf, rf(), init)
@@ -162,25 +157,25 @@ def _itransduce(xform, rf, init, coll):
 def itransduce(xform, rf, init, coll=_Undefined):
     """
     itransduce(xform, rf, init, coll) -> reduction result
-    itransduce(xform, rf, coll) -> reduction result
+    *itransduce(xform, rf, coll) -> reduction result*
 
     Returns the result of reducing an iterable with a transformation.
 
-    Reduces coll using a transformed reducing function equal to xform(rf). See
-    ireduce() for more information on reduction. After the transformed reducing
-    function has received all input it will be called once more with a single
-    argument, the result thus far.
+    Reduces *coll* using a transformed reducing function equal to
+    ``xform(rf)``. See `ireduce()` for more information on reduction. After the
+    transformed reducing function has received all input it will be called once
+    more with a single argument, the result thus far.
 
     Args:
         xform: A transducer.
-        rf: A reducing function accepting both 1 and 2 arguments. If init is
-            not provided, then rf must return a value to be used as init when
-            called with 0 arguments.
+        rf: A reducing function accepting both 1 and 2 arguments. If *init* is
+            not provided, then *rf* must return a value to be used as *init*
+            when called with 0 arguments.
         init: An optional initial value.
         coll: An iterable.
 
     See Also:
-        ireduce
+        `ireduce()`
     """
     if coll is _Undefined:
         return _itransduce(xform, rf, rf(), init)
@@ -189,13 +184,11 @@ def itransduce(xform, rf, init, coll=_Undefined):
 
 def append(appendable=_Undefined, val=_Undefined):
     """
-    append(appendable, val) -> appendable.append(val)
+    append(appendable, val) -> appended result
+    | *append(appendable) -> appendable*
+    | *append() -> []*
 
-    append(appendable) -> appendable
-
-    append() -> []
-
-    A reducing function that appends val to appendable.
+    A reducing function that appends *val* to *appendable*.
     """
     if appendable is _Undefined:
         return []
@@ -206,15 +199,15 @@ def append(appendable=_Undefined, val=_Undefined):
 
 
 def into(appendable, xform, coll):
-    """Transfers all values from coll into appendable with a transformation.
+    """Transfers all values from *coll* into *appendable* with a transformation.
 
-    Same as itransduce(xform, append, appendable, coll).
+    Same as ``itransduce(xform, append, appendable, coll)``.
     """
     return itransduce(xform, append, appendable, coll)
 
 
 def xiter(xform, coll):
-    """Returns an iterator over the transformed elements in coll.
+    """Returns an iterator over the transformed elements in *coll*.
 
     Useful for when you want to transform an iterable into another iterable
     in a lazy fashion.
@@ -246,8 +239,8 @@ def _step_safety(step):
     Args:
         step: A reducing function that accepts 2 arguments.
 
-    Returns: A wrapper function that adds an assertion that the step function
-        will never get called again once a reduced value is returned.
+    Returns: A wrapper function that adds an assertion that the *step* function
+        will never get called again once a `reduced` value is returned.
     """
     end_of_input = False
 
@@ -264,23 +257,29 @@ def _step_safety(step):
 
 
 def map(f):
-    """Returns a transducer that applies f to each input.
+    """Returns a transducer that applies *f* to each input.
 
     Args:
-        f: A function accepting a single argument.
+        f: A function, ``f(input) -> any``.
+
+    See Also:
+        `map_indexed()`
      """
     return lambda rf: multi_arity(rf, rf, lambda result, val: rf(result, f(val)))
 
 
 def map_indexed(f):
-    """Returns a transducer that transforms using f(index, value).
+    """Returns a transducer that transforms using ``f(index, value)``.
 
-    The returned transducer applies f to each value with the corresponding
-    index. f will be called as f(index, value) where index represents the nth
-    value to be passed into the transformation starting at 0.
+    The returned transducer applies *f* to each value with the corresponding
+    index. *f* will be called as ``f(index, value)`` where *index* represents
+    the nth *value* to be passed into the transformation starting at 0.
 
     Args:
-        f: A function accepting index and value as arguments.
+        f: A function, ``f(index, value) -> any``.
+
+    See Also:
+        `map()`
     """
     def xform(rf):
         i = -1
@@ -295,15 +294,14 @@ def map_indexed(f):
 
 
 def filter(pred):
-    """Returns a transducer that outputs values for which predicate returns true.
+    """Returns a transducer that outputs values for which predicate returns True.
 
     Args:
-        pred: A predicate function that accepts a single value and returns
-            true to keep it or false to remove it.
+        pred: A predicate function, ``pred(value) -> bool``.
 
     See Also:
-        filter_indexed
-        remove
+        `filter_indexed()`
+        `remove()`
     """
     return lambda rf: multi_arity(rf, rf,
                                   lambda result, val: (rf(result, val)
@@ -311,80 +309,77 @@ def filter(pred):
                                                        else result))
 
 
-def filter_indexed(pred):
-    """Returns a transducer which filters values based on pred(index, value).
+def filter_indexed(f):
+    """Returns a transducer which filters values based on ``f(index, value)``.
 
-    The returned transducer outputs values that return true when passed into
-    pred with the corresponding index. pred will be called as
-    pred(index, value) where index represents the nth value to be passed into
-    the transformation starting at 0.
+    The returned transducer outputs values that return True when passed into
+    *f* with the corresponding index. *f* will be called as ``f(index, value)``
+    where *index* represents the nth *value* to be passed into the
+    transformation starting at 0.
 
     Args:
-        pred: A predicate function to be called as pred(index, value).
+        f: A function, ``f(index, value) -> bool``.
 
     See Also:
-        filter
-        remove_indexed
+        `filter()`
+        `remove_indexed()`
     """
-    return comp(map_indexed(lambda i, x: x if pred(i, x) else _Undefined),
+    return comp(map_indexed(lambda i, x: x if f(i, x) else _Undefined),
                 filter(lambda x: x is not _Undefined))
 
 
 def remove(pred):
-    """Returns a transducer that drops values for which predicate returns true.
+    """Returns a transducer that drops values for which predicate returns True.
 
     Args:
-        pred: A predicate function.
+        pred: A predicate function, ``pred(value) -> bool``.
 
     See Also:
-        filter
-        remove_indexed
+        `filter()`
+        `remove_indexed()`
     """
     return filter(lambda x: not pred(x))
 
 
-def remove_indexed(pred):
-    """Returns a transducer which drops values based on pred(index, value).
+def remove_indexed(f):
+    """Returns a transducer which drops values based on ``f(index, value)``.
 
-    The returned transducer drops values that return true when passed into pred
-    with the corresponding index. pred will be called as pred(index, value)
-    where index represents the nth value to be passed into the transformation
-    starting at 0.
+    The returned transducer drops values that return True when passed into *f*
+    with the corresponding index. *f* will be called as ``f(index, value)``
+    where *index* represents the nth *value* to be passed into the
+    transformation starting at 0.
 
     Args:
-        pred: A predicate function to be called as pred(index, value).
+        f: A function, ``f(index, value) -> bool``.
 
     See Also:
-        filter_indexed
-        remove
+        `filter_indexed()`
+        `remove()`
     """
-    return filter_indexed(lambda i, x: not pred(i, x))
+    return filter_indexed(lambda i, x: not f(i, x))
 
 
 def keep(f):
-    """Returns a transducer that outputs the non-None return values of f(value).
-
-    Args:
-        f: A function accepting a single argument.
+    """Returns a transducer that outputs the non-None return values of ``f(value)``.
 
     See Also:
-        keep_indexed
+        `keep_indexed()`
     """
     return comp(map(f), filter(lambda x: x is not None))
 
 
 def keep_indexed(f):
-    """Returns a transducer that outputs the non-None return values of f(index, value).
+    """Returns a transducer that outputs the non-None return values of ``f(index, value)``.
 
     The returned transducer outputs the non-None return values of
-    f(index, value) where index represents the nth value to be passed into the
-    transformation starting at 0.
+    ``f(index, value)`` where *index* represents the nth *value* to be passed
+    into the transformation starting at 0.
 
     Args:
-        f: A function to be called as f(index, value).
+        f: A function, ``f(index, value) -> any``.
 
     See Also:
-        keep
+        `keep()`
     """
     return comp(map_indexed(f), filter(lambda x: x is not None))
 
@@ -395,8 +390,8 @@ def cat(rf):
     Expects each input to be an iterable, the contents of which will be
     outputted one at a time.
 
-    Args:
-        rf: A reducing function.
+    See Also:
+        `mapcat()`
     """
     def double_reduced_rf(result, val):
         ret = rf(result, val)
@@ -406,19 +401,15 @@ def cat(rf):
 
 
 def mapcat(f):
-    """Returns a transducer that applies f to each input and concatenates the result.
-
-    Args:
-        f: A function of the form, f(x) -> iterable.
-    """
+    """Returns a transducer that applies *f* to each input and concatenates the result."""
     return comp(map(f), cat)
 
 
 def take(n):
-    """Returns a transducer that outputs the first n inputs.
+    """Returns a transducer that outputs the first *n* inputs.
 
-    The returned transducer outputs the first n inputs if n < the number of
-    inputs. If n >= the number of inputs, then outputs all of them.
+    The returned transducer outputs the first *n* inputs if *n* < the number of
+    inputs. If *n* >= the number of inputs, then outputs all of them.
 
     Args:
         n: A number.
@@ -438,12 +429,13 @@ def take(n):
 
 
 def take_last(n):
-    """Returns a transducer that outputs the last n inputs.
+    """Returns a transducer that outputs the last *n* inputs.
 
-    The returned transducer outputs the last n inputs if n < the number of
-    inputs. If n >= the number of inputs, then outputs all inputs.
+    The returned transducer outputs the last *n* inputs if *n* < the number of
+    inputs. If *n* >= the number of inputs, then outputs all of them.
 
-    No values will be outputted until the completion arity is called.
+    Note:
+        No values will be outputted until the completion arity is called.
 
     Args:
         n: A number.
@@ -470,21 +462,21 @@ def take_last(n):
 
 
 def take_nth(n):
-    """Returns a transducer that outputs every nth input starting with the first.
+    """Returns a transducer that outputs every *nth* input starting with the first.
 
     Args:
-        n: A positive integer.
+        n: A positive int.
     """
     if n < 1 or n != int(n):
-        raise ValueError('n must be a positive integer')
+        raise ValueError('n must be a positive int')
     return filter_indexed(lambda i, _: i % n == 0)
 
 
 def take_while(pred):
-    """Returns a transducer that outputs values until predicate returns false.
+    """Returns a transducer that outputs values until predicate returns False.
 
     Args:
-        pred: A predicate function.
+        pred: A predicate function, *f(value) -> bool*.
     """
     def xform(rf):
         @_step_safety
@@ -495,10 +487,10 @@ def take_while(pred):
 
 
 def drop(n):
-    """Returns a transducer that drops the first n inputs.
+    """Returns a transducer that drops the first *n* inputs.
 
-    The returned transducer drops the first n inputs if n < the number of
-    inputs. If n >= the number of inputs, then drops all inputs.
+    The returned transducer drops the first *n* inputs if *n* < the number of
+    inputs. If *n* >= the number of inputs, then drops all of them.
 
     Args:
         n: A number.
@@ -516,15 +508,17 @@ def drop(n):
 
 
 def drop_last(n):
-    """Returns a transducer that drops the last n values.
+    """Returns a transducer that drops the last *n* values.
 
-    The returned transducer drops the last n values if n < the number of
-    inputs. If n >= the number of inputs, then drops all inputs.
-
-    No values will be outputted until n inputs have been received.
+    The returned transducer drops the last *n* inputs if *n* < the number of
+    inputs. If *n* >= the number of inputs, then drops all of them.
 
     Args:
         n: A number.
+
+    Note:
+        No values will be outputted until *n* inputs have been received.
+
     """
     def xform(rf):
         buffer = _deque()
@@ -544,10 +538,10 @@ def drop_last(n):
 
 
 def drop_while(pred):
-    """Returns a transducer that drops values until predicate returns false.
+    """Returns a transducer that drops inputs until predicate returns False.
 
     Args:
-        pred: A predicate function.
+        pred: A predicate function, *f(input) -> bool*.
     """
     def xform(rf):
         has_taken = False
@@ -566,7 +560,7 @@ def drop_while(pred):
 
 
 def distinct(rf):
-    """A transducer that removes duplicate values."""
+    """A transducer that drops duplicate values."""
     prev_vals = set()
 
     def step(result, val):
@@ -583,7 +577,7 @@ def distinct(rf):
 
 
 def dedupe(rf):
-    """A transducer that removes consecutive duplicate values."""
+    """A transducer that drops consecutive duplicate values."""
     prev_val = _Undefined
 
     def step(result, val):
@@ -599,19 +593,21 @@ def dedupe(rf):
 def partition_all(n, step=None):
     """Returns a transducer that partitions all values.
 
-    The returned transducer partitions values into tuples of size n that are
-    step items apart. Partitions at the end may have a size < n.
+    The returned transducer partitions values into tuples of size *n* that are
+    *step* items apart. Partitions at the end may have a size < *n*.
+
+    * If *step* < *n*, partitions will overlap *n* - *step* elements.
+    * If *step* == *n*, the default, no overlapping or dropping will occur.
+    * If *step* > *n*, *step* - *n* values will be dropped between partitions.
 
     Args:
         n: An optional positive int representing the size of each partition
             (may be less for partitions at the end).
         step: An optional positive int used as the offset between partitions.
-            If step < n, partitions will overlap n - step elements.
-            If step == n, the default, no overlapping or dropping will occur.
-            If step > n, step - n values will be dropped between partitions.
+            Defaults to *n*.
 
     See Also:
-        partition
+        `partition()`
     """
     if step is None:
         step = n
@@ -658,29 +654,31 @@ def partition_all(n, step=None):
 
 
 def partition(n, step=None, pad=None):
-    """Returns a transducer that partitions values into tuples of size n.
+    """Returns a transducer that partitions values into tuples of size *n*.
 
-    The returned transducer partitions the values into tuples of size n
-    that are step items apart.
+    The returned transducer partitions the values into tuples of size *n* that
+    are *step* items apart.
 
-    If the last partition size is greater than 0 but less than n:
+    * If *step* < *n*, partitions will overlap *n* - *step* elements.
+    * If *step* == *n*, the default, no overlapping or dropping will occur.
+    * If *step* > *n*, *step* - *n* values will be dropped between partitions.
 
-    - If pad is None, the last partition is discarded.
-    - If pad exists, its values will be used to fill the partition to a desired
-      size of n. The padded partition will be outputted even if its size is < n.
+    If the last partition size is greater than 0 but less than *n*:
+
+    * If *pad* is None, the last partition is discarded.
+    * If *pad* exists, its values will be used to fill the partition to a
+      desired size of *n*. The padded partition will be outputted even if its
+      size is < *n*.
 
     Args:
         n: A positive int representing the length of each partition. The last
-            partition may be < n if pad is provided.
+            partition may be < *n* if *pad* is provided.
         step: An optional positive int used as the offset between partitions.
-            If step < n, partitions will overlap n - step elements.
-            If step == n, the default, no overlapping or dropping will occur.
-            If step > n, step - n values will be dropped between partitions.
         pad: An optional iterable of any size. If the last partition size is
-            greater than 0 and less than n, then pad will be applied to it.
+            greater than 0 and less than *n*, then *pad* will be applied to it.
 
     See Also:
-        partition_all
+        `partition_all()`
     """
     def pad_xform(rf):
         def step_f(result, part):
@@ -696,15 +694,15 @@ def partition(n, step=None, pad=None):
 
 
 def partition_by(f):
-    """Returns a transducer that partitions inputs by f.
+    """Returns a transducer that partitions inputs by *f*.
 
     In this context, a partition is defined as a tuple containing consecutive
-    items for which f(item) returns the same value. That is to say, a new
-    partition will be started each time f(item) returns a different value than
-    the previous call.
+    items for which ``f(item)`` returns the same value. That is to say, a new
+    partition will be started each time ``f(item)`` returns a different value
+    than the previous call.
 
     Args:
-        f: A function accepting a single argument.
+        f: A function, ``f(item) -> any``.
     """
     def xform(rf):
         prev_f_ret = _Undefined
@@ -741,17 +739,17 @@ def reductions(rf, init=_Undefined):
 
     Returns a transducer that outputs each intermediate result from a reduction.
 
-    The transformation first outputs init. From then on, all outputs will
-    be of the form rf(prev_output, val) where val is an input to the
-    transformation. rf will continue to get called until all input has been
-    exhausted or rf returns a reduced value.
+    The transformation first outputs *init*. From then on, all outputs will be
+    derived from ``rf(prev_output, val)`` where *val* is an input to the
+    transformation. *rf* will continue to get called until all input has been
+    exhausted or *rf* returns a `reduced` value.
 
     Args:
         rf: A reducing function.
         init: An optional initial value.
 
     See Also:
-        ireduce
+        `ireduce()`
     """
     if init is _Undefined:
         init = rf()
@@ -786,7 +784,7 @@ def reductions(rf, init=_Undefined):
 
 
 def interpose(sep):
-    """Returns a transducer that outputs each input separated by sep."""
+    """Returns a transducer that outputs each input separated by *sep*."""
     def xform(rf):
         is_initial = True
 
@@ -805,8 +803,8 @@ def interpose(sep):
 def replace(smap):
     """Returns a transducer that replaces values based on the given dictionary.
 
-    The returned transducer replaces any input that's a key in smap with the
-    key's corresponding value. Inputs that aren't a key in smap will be
+    The returned transducer replaces any input that's a key in *smap* with the
+    key's corresponding value. Inputs that aren't a key in *smap* will be
     outputted without any transformation.
 
     Args:
