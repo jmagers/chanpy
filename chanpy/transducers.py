@@ -8,7 +8,7 @@ Notable features of transducers:
     * Support early termination via :any:`reduced` values.
 
 Creating transducers:
-    Transducers are also known as :term:`reducing function` transformers. They
+    Transducers are also known as :any:`reducing function` transformers. They
     are simply functions that accept a reducing function as input and return a
     new reducing function as output.
 
@@ -27,12 +27,12 @@ class _Undefined:
 
 
 def identity(x):
-    """A NOP transducer that simply returns its argument."""
+    """A NOP :any:`transducer` that simply returns its argument."""
     return x
 
 
 def comp(*xforms):
-    """Returns a new transducer equal to the composition of `xforms`.
+    """Returns a new :any:`transducer` equal to the composition of `xforms`.
 
     The returned transducer passes values through the given transformations
     from left to right.
@@ -93,12 +93,12 @@ def completing(rf, cf=identity):
     """Returns a wrapper around `rf` that calls `cf` when invoked with one argument.
 
     Args:
-        rf: A reducing function.
+        rf: A :any:`reducing function`.
         cf: An optional function that accepts a single argument. Used as the
-            completion arity for the returned reducing function.
+            completion arity for the returned :any:`reducing function`.
 
     Returns:
-        A reducing function that dispatches to `cf` when called with a single
+        A :any:`reducing function` that dispatches to `cf` when called with a single
         argument or `rf` when called with any other number of arguments.
     """
     @_functools.wraps(rf)
@@ -132,7 +132,7 @@ def ireduce(rf, init, coll=_Undefined):
     is exhausted or `rf` returns a :any:`reduced` value.
 
     Args:
-        rf: A reducing function accepting 2 arguments. If `init` is not
+        rf: A :any:`reducing function` accepting 2 arguments. If `init` is not
             provided, then `rf` must return a value to be used as `init` when
             called with 0 arguments.
         init: An optional initial value.
@@ -165,10 +165,10 @@ def itransduce(xform, rf, init, coll=_Undefined):
     once more with a single argument, the result thus far.
 
     Args:
-        xform: A transducer.
-        rf: A reducing function accepting both 1 and 2 arguments. If `init` is
-            not provided, then `rf` must return a value to be used as `init`
-            when called with 0 arguments.
+        xform: A :any:`transducer`.
+        rf: A :any:`reducing function` accepting both 1 and 2 arguments.
+            If `init` is not provided, then `rf` must return a value to be used
+            as `init` when called with 0 arguments.
         init: An optional initial value.
         coll: An iterable.
 
@@ -186,7 +186,7 @@ def append(appendable=_Undefined, val=_Undefined):
     | *append(appendable) -> appendable*
     | *append() -> []*
 
-    A reducing function that appends `val` to `appendable`.
+    A :any:`reducing function` that appends `val` to `appendable`.
     """
     if appendable is _Undefined:
         return []
@@ -199,7 +199,7 @@ def append(appendable=_Undefined, val=_Undefined):
 def into(appendable, xform, coll):
     """Transfers all values from `coll` into `appendable` with a transformation.
 
-    Same as ``itransduce(xform, append, appendable, coll)``.
+    Same as :func:`itransduce(xform, append, appendable, coll) <itransduce>`.
     """
     return itransduce(xform, append, appendable, coll)
 
@@ -211,7 +211,7 @@ def xiter(xform, coll):
     in a lazy fashion.
 
     Args:
-        xform: A transducer.
+        xform: A :any:`transducer`.
         coll: A potentially infinite iterable.
     """
     buffer = _deque()
@@ -235,7 +235,7 @@ def _step_safety(step):
     """A decorator for step functions to help with debugging reduced cases.
 
     Args:
-        step: A reducing function that accepts 2 arguments.
+        step: A :any:`reducing function` that accepts 2 arguments.
 
     Returns:
         A wrapper function that adds an assertion that the `step` function will
@@ -256,7 +256,7 @@ def _step_safety(step):
 
 
 def map(f):
-    """Returns a transducer that applies `f` to each input.
+    """Returns a :any:`transducer` that applies `f` to each input.
 
     Args:
         f: A function, ``f(input) -> any``.
@@ -268,7 +268,7 @@ def map(f):
 
 
 def map_indexed(f):
-    """Returns a transducer that transforms using ``f(index, value)``.
+    """Returns a :any:`transducer` that transforms using ``f(index, value)``.
 
     The returned transducer applies `f` to each value with the corresponding
     index. `f` will be called as ``f(index, value)`` where `index` represents
@@ -293,7 +293,7 @@ def map_indexed(f):
 
 
 def filter(pred):
-    """Returns a transducer that outputs values for which predicate returns True.
+    """Returns a :any:`transducer` that outputs values for which predicate returns True.
 
     Args:
         pred: A predicate function, ``pred(value) -> bool``.
@@ -309,7 +309,7 @@ def filter(pred):
 
 
 def filter_indexed(f):
-    """Returns a transducer which filters values based on ``f(index, value)``.
+    """Returns a :any:`transducer` which filters values based on ``f(index, value)``.
 
     The returned transducer outputs values that return True when passed into
     `f` with the corresponding index. `f` will be called as ``f(index, value)``
@@ -328,7 +328,7 @@ def filter_indexed(f):
 
 
 def remove(pred):
-    """Returns a transducer that drops values for which predicate returns True.
+    """Returns a :any:`transducer` that drops values for which predicate returns True.
 
     Args:
         pred: A predicate function, ``pred(value) -> bool``.
@@ -341,7 +341,7 @@ def remove(pred):
 
 
 def remove_indexed(f):
-    """Returns a transducer which drops values based on ``f(index, value)``.
+    """Returns a :any:`transducer` which drops values based on ``f(index, value)``.
 
     The returned transducer drops values that return True when passed into `f`
     with the corresponding index. `f` will be called as ``f(index, value)``
@@ -359,7 +359,7 @@ def remove_indexed(f):
 
 
 def keep(f):
-    """Returns a transducer that outputs the non-None return values of ``f(value)``.
+    """Returns a :any:`transducer` that outputs the non-None return values of ``f(value)``.
 
     See Also:
         :func:`keep_indexed`
@@ -368,7 +368,7 @@ def keep(f):
 
 
 def keep_indexed(f):
-    """Returns a transducer that outputs the non-None return values of ``f(index, value)``.
+    """Returns a :any:`transducer` that outputs the non-None return values of ``f(index, value)``.
 
     The returned transducer outputs the non-None return values of
     ``f(index, value)`` where `index` represents the nth `value` to be passed
@@ -384,7 +384,7 @@ def keep_indexed(f):
 
 
 def cat(rf):
-    """A transducer that concatenates the contents of its inputs.
+    """A :any:`transducer` that concatenates the contents of its inputs.
 
     Expects each input to be an iterable, the contents of which will be
     outputted one at a time.
@@ -400,12 +400,12 @@ def cat(rf):
 
 
 def mapcat(f):
-    """Returns a transducer that applies `f` to each input and concatenates the result."""
+    """Returns a :any:`transducer` that applies `f` to each input and concatenates the result."""
     return comp(map(f), cat)
 
 
 def take(n):
-    """Returns a transducer that outputs the first `n` inputs.
+    """Returns a :any:`transducer` that outputs the first `n` inputs.
 
     The returned transducer outputs the first `n` inputs if `n` < the number of
     inputs. If `n` >= the number of inputs, then outputs all of them.
@@ -428,7 +428,7 @@ def take(n):
 
 
 def take_last(n):
-    """Returns a transducer that outputs the last `n` inputs.
+    """Returns a :any:`transducer` that outputs the last `n` inputs.
 
     The returned transducer outputs the last `n` inputs if `n` < the number of
     inputs. If `n` >= the number of inputs, then outputs all of them.
@@ -461,7 +461,7 @@ def take_last(n):
 
 
 def take_nth(n):
-    """Returns a transducer that outputs every nth input starting with the first.
+    """Returns a :any:`transducer` that outputs every nth input starting with the first.
 
     Args:
         n: A positive int.
@@ -472,7 +472,7 @@ def take_nth(n):
 
 
 def take_while(pred):
-    """Returns a transducer that outputs values until predicate returns False.
+    """Returns a :any:`transducer` that outputs values until the predicate returns False.
 
     Args:
         pred: A predicate function, ``f(value) -> bool``.
@@ -486,7 +486,7 @@ def take_while(pred):
 
 
 def drop(n):
-    """Returns a transducer that drops the first `n` inputs.
+    """Returns a :any:`transducer` that drops the first `n` inputs.
 
     The returned transducer drops the first `n` inputs if `n` < the number of
     inputs. If `n` >= the number of inputs, then drops all of them.
@@ -507,7 +507,7 @@ def drop(n):
 
 
 def drop_last(n):
-    """Returns a transducer that drops the last `n` values.
+    """Returns a :any:`transducer` that drops the last `n` values.
 
     The returned transducer drops the last `n` inputs if `n` < the number of
     inputs. If `n` >= the number of inputs, then drops all of them.
@@ -537,10 +537,10 @@ def drop_last(n):
 
 
 def drop_while(pred):
-    """Returns a transducer that drops inputs until predicate returns False.
+    """Returns a :any:`transducer` that drops inputs until the predicate returns False.
 
     Args:
-        pred: A predicate function, ``f(input) -> bool``.
+        pred: A predicate function, ``pred(input) -> bool``.
     """
     def xform(rf):
         has_taken = False
@@ -559,7 +559,7 @@ def drop_while(pred):
 
 
 def distinct(rf):
-    """A transducer that drops duplicate values."""
+    """A :any:`transducer` that drops duplicate values."""
     prev_vals = set()
 
     def step(result, val):
@@ -576,7 +576,7 @@ def distinct(rf):
 
 
 def dedupe(rf):
-    """A transducer that drops consecutive duplicate values."""
+    """A :any:`transducer` that drops consecutive duplicate values."""
     prev_val = _Undefined
 
     def step(result, val):
@@ -590,7 +590,7 @@ def dedupe(rf):
 
 
 def partition_all(n, step=None):
-    """Returns a transducer that partitions all values.
+    """Returns a :any:`transducer` that partitions all values.
 
     The returned transducer partitions values into tuples of size `n` that are
     `step` items apart. Partitions at the end may have a size < `n`.
@@ -653,7 +653,7 @@ def partition_all(n, step=None):
 
 
 def partition(n, step=None, pad=None):
-    """Returns a transducer that partitions values into tuples of size `n`.
+    """Returns a :any:`transducer` that partitions values into tuples of size `n`.
 
     The returned transducer partitions the values into tuples of size `n` that
     are `step` items apart.
@@ -693,7 +693,7 @@ def partition(n, step=None, pad=None):
 
 
 def partition_by(f):
-    """Returns a transducer that partitions inputs by `f`.
+    """Returns a :any:`transducer` that partitions inputs by `f`.
 
     In this context, a partition is defined as a tuple containing consecutive
     items for which ``f(item)`` returns the same value. That is to say, a new
@@ -736,7 +736,7 @@ def reductions(rf, init=_Undefined):
     """
     reductions(rf, init=Undefined)
 
-    Returns a transducer that outputs each intermediate result from a reduction.
+    Returns a :any:`transducer` that outputs each intermediate result from a reduction.
 
     The transformation first outputs `init`. From then on, all outputs will be
     derived from ``rf(prev_output, val)`` where `val` is an input to the
@@ -744,7 +744,7 @@ def reductions(rf, init=_Undefined):
     exhausted or `rf` returns a :any:`reduced` value.
 
     Args:
-        rf: A reducing function.
+        rf: A :any:`reducing function`.
         init: An optional initial value.
 
     See Also:
@@ -783,7 +783,7 @@ def reductions(rf, init=_Undefined):
 
 
 def interpose(sep):
-    """Returns a transducer that outputs each input separated by `sep`."""
+    """Returns a :any:`transducer` that outputs each input separated by `sep`."""
     def xform(rf):
         is_initial = True
 
@@ -800,7 +800,7 @@ def interpose(sep):
 
 
 def replace(smap):
-    """Returns a transducer that replaces values based on the given dictionary.
+    """Returns a :any:`transducer` that replaces values based on the given dictionary.
 
     The returned transducer replaces any input that's a key in `smap` with the
     key's corresponding value. Inputs that aren't a key in `smap` will be
@@ -818,7 +818,7 @@ def replace(smap):
 
 
 def random_sample(prob):
-    """Returns a transducer that selects inputs with the given probability.
+    """Returns a :any:`transducer` that selects inputs with the given probability.
 
     Args:
         prob: A number between 0 and 1.

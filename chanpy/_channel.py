@@ -167,7 +167,7 @@ class chan:
     Channels support multiple producers and consumers and may be buffered or
     unbuffered. Additionally, buffered channels can optionally have a
     transformation applied to the values put to them through the use of a
-    :any:`transducer <transducers>`.
+    :any:`transducer`.
 
     Channels may be used by threads with or without a running asyncio event
     loop. The :meth:`get`, :meth:`put`, and :func:`alt` functions provide

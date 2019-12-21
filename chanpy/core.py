@@ -83,10 +83,10 @@ def is_unblocking_buffer(buf):
 def promise_chan(xform=None, ex_handler=None):
     """Returns a channel that emits the same value forever.
 
-    Creates a channel with an optional transducer and exception handler that
-    always returns the same value to consumers. The value emitted will be the
-    first item put onto the channel or None if the channel was closed before
-    the first put.
+    Creates a channel with an optional :any:`transducer` and exception handler
+    that always returns the same value to consumers. The value emitted will be
+    the first item put onto the channel or None if the channel was closed
+    before the first put.
 
     Args:
         xform: An optional transducer. See :class:`chan`.
@@ -291,13 +291,13 @@ def reduce(rf, init, ch=_Undefined):
     placing the final result in the returned channel. If `ch` is exhausted,
     then `init` will be used as the result. If `ch` is not exhausted, then the
     first call to `rf` will be ``rf(init, val)`` where `val` is taken from
-    `ch`. `rf` will continue to get called as ``rf(prev_return, next_val)``
+    `ch`. `rf` will continue to get called as ``rf(prev_rf_return, next_val)``
     until either `ch` is exhausted or `rf` returns a :any:`reduced` value.
 
     Args:
-        rf: A reducing function accepting 2 args. If `init` is not provided,
-            then `rf` must return a value to be used as `init` when called with
-            0 args.
+        rf: A :any:`reducing function` accepting 2 args. If `init` is not
+            provided, then `rf` must return a value to be used as `init` when
+            called with 0 args.
         init: An optional initial value.
         ch: A channel to get values from.
 
@@ -330,13 +330,13 @@ def transduce(xform, rf, init, ch=_Undefined):
     transformed reducing function equal to ``xform(rf)``. See :func:`reduce`
     for more information on reduction. After the transformed reducing function
     has received all input it will be called once more with a single argument,
-    the result thus far.
+    the accumulated result.
 
     Args:
-        xform: A transducer.
-        rf: A reducing function accepting both 1 and 2 arguments. If `init` is
-            not provided, then `rf` must return a value to be used as `init`
-            when called with 0 arguments.
+        xform: A :any:`transducer`.
+        rf: A :any:`reducing function` accepting both 1 and 2 arguments.
+            If `init` is not provided, then `rf` must return a value to be used
+            as `init` when called with 0 arguments.
         init: An optional initial value.
         ch: A channel to get values from.
 
@@ -448,8 +448,8 @@ def pipeline(n, to_ch, xform, from_ch, *,
         n: A positive int specifying the maximum number of workers to run in
             parallel.
         to_ch: A channel to put the transformed values onto.
-        xform: A transducer that will be applied to each value independently
-            (not across values).
+        xform: A :any:`transducer` that will be applied to each value
+            independently (not across values).
         from_ch: A channel to get values from.
         close: An optional bool. If True, `to_ch` will be closed after transfer
             finishes.
