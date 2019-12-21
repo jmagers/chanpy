@@ -8,15 +8,12 @@ Notable features of transducers:
     * Support early termination via :any:`reduced` values.
 
 Creating transducers:
-    Transducers are also known as reducing function transformers. They are
-    simply functions that accept a reducing function as input and return a new
-    reducing function as output. A reducing function is defined as a function
-    that accepts 2 arguments (step arity), 1 argument (completion arity), and
-    optionally 0 arguments (init arity). :func:`multi_arity` can be used to
-    help create these multi-arity reducing functions.
+    Transducers are also known as :term:`reducing function` transformers. They
+    are simply functions that accept a reducing function as input and return a
+    new reducing function as output.
 
-See https://clojure.org/reference/transducers for more information about
-transducers.
+See `clojure.org <https://clojure.org/reference/transducers>`_ for more
+information about transducers.
 """
 
 import functools as _functools

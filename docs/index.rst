@@ -8,3 +8,4 @@ Python.
    :maxdepth: 2
 
    api
+   glossary
