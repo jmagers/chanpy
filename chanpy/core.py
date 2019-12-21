@@ -33,7 +33,7 @@ from multiprocessing import Pool as _ProcPool
 from multiprocessing.dummy import Pool as _DummyPool
 from . import _buffers as _bufs
 from . import transducers as _xf
-from ._channel import chan, alts, b_alts, alt, b_alt, QueueSizeExceeded
+from ._channel import chan, alts, b_alts, alt, b_alt, QueueSizeError
 
 
 class _Undefined:
@@ -455,15 +455,17 @@ def pipeline(n, to_ch, xform, from_ch, *,
             finishes.
         ex_handler: An optional exception handler. See :class:`chan`.
         mode: Either ``'thread'`` or ``'process'``. Specifies whether to use a
-            thread or process pool to parallelize work. Note that if CPython is
-            being used with ``'thread'``, then `xform` must release the GIL at
-            some point in order to achieve any parallelism.
+            thread or process pool to parallelize work.
         chunksize: An optional positive int that's only relevant when
             ``mode='process'``. Specifies the approximate amount of values each
             worker will receive at once.
 
     Returns:
         A channel that closes after the transfer finishes.
+
+    Note:
+        If CPython is being used with ``mode='thread'``, then `xform` must
+        release the GIL at some point in order to achieve any parallelism.
 
     See Also:
         :func:`pipeline_async`
@@ -887,7 +889,7 @@ class mix:
 
         Args:
             mode: Either ``'pause'`` or ``'mute'``. See :class:`mix` for
-            behaviors.
+                behaviors.
         """
         if mode not in ['pause', 'mute']:
             raise ValueError(f'solo-mode is invalid: {mode}')

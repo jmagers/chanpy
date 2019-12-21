@@ -8,19 +8,23 @@ from . import _buffers as bufs
 from . import transducers as xf
 
 
-__all__ = ['chan', 'alts', 'b_alts', 'alt', 'b_alt', 'QueueSizeExceeded']
+__all__ = ['chan', 'alts', 'b_alts', 'alt', 'b_alt', 'QueueSizeError']
 
 
 MAX_QUEUE_SIZE = 1024
 
 
-class QueueSizeExceeded(Exception):
+class QueueSizeError(Exception):
     """Maximum pending channel operations exceeded.
 
     Raised when too many operations have been enqueued on a channel.
     Consider using a windowing buffer to prevent enqueuing too many puts or
-    altering your design to have less asynchronous processes access the channel
-    at once.
+    altering your design to have less asynchronous "processes" access the
+    channel at once.
+
+    Note:
+        This exception is an indication of a design error. It should NOT be
+        caught and discarded.
     """
 
 
@@ -259,8 +263,7 @@ class chan:
 
         Raises:
             RuntimeError: If the calling thread has no running event loop.
-            QueueSizeExceeded: If the channel has too many pending put
-                operations.
+            QueueSizeError: If the channel has too many pending put operations.
         """
         flag = create_flag()
         future = FlagFuture(flag)
@@ -286,8 +289,7 @@ class chan:
 
         Raises:
             RuntimeError: If the calling thread has no running event loop.
-            QueueSizeExceeded: If the channel has too many pending get
-                operations.
+            QueueSizeError: If the channel has too many pending get operations.
         """
         flag = create_flag()
         future = FlagFuture(flag)
@@ -333,8 +335,7 @@ class chan:
             False if the channel is already closed or True if its not.
 
         Raises:
-            QueueSizeExceeded: If the channel has too many pending put
-                operations.
+            QueueSizeError: If the channel has too many pending put operations.
         """
         f = (lambda _: None) if f is None else f
         ret = self._p_put(FnHandler(f), val)
@@ -354,8 +355,7 @@ class chan:
                 is exhausted.
 
         Raises:
-            QueueSizeExceeded: If the channel has too many pending get
-                operations.
+            QueueSizeError: If the channel has too many pending get operations.
         """
         ret = self._p_get(FnHandler(f))
         if ret is None:
@@ -363,11 +363,11 @@ class chan:
         f(ret[0])
 
     def offer(self, val):
-        """Same as ``b_put(val, wait=False)``."""
+        """Same as :meth:`b_put(val, wait=False) <b_put>`."""
         return self.b_put(val, wait=False)
 
     def poll(self):
-        """Same as ``b_get(wait=False)``."""
+        """Same as :meth:`b_get(wait=False) <b_get>`."""
         return self.b_get(wait=False)
 
     def close(self):
@@ -419,8 +419,7 @@ class chan:
             immediately. None if the operation is enqueued.
 
         Raises:
-            QueueSizeExceeded: If the channel has too many pending put
-                operations.
+            QueueSizeError: If the channel has too many pending put operations.
         """
         if val is None:
             raise TypeError('item cannot be None')
@@ -456,7 +455,7 @@ class chan:
 
             # Attempt to enqueue the operation
             if len(self._puts) >= MAX_QUEUE_SIZE:
-                raise QueueSizeExceeded('channel has too many pending puts')
+                raise QueueSizeError('channel has too many pending puts')
             self._puts.append((handler, val))
 
     def _p_get(self, handler):
@@ -483,8 +482,7 @@ class chan:
             immediately. None if the operation is enqueued.
 
         Raises:
-            QueueSizeExceeded: If the channel has too many pending get
-                operations.
+            QueueSizeError: If the channel has too many pending get operations.
         """
         with self._lock:
             self._cleanup()
@@ -524,7 +522,7 @@ class chan:
 
             # Attempt to enqueue the operation
             if len(self._takes) >= MAX_QUEUE_SIZE:
-                raise QueueSizeExceeded('channel has too many pending gets')
+                raise QueueSizeError('channel has too many pending gets')
             self._takes.append(handler)
 
     def _cleanup(self):
