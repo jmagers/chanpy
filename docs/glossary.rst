@@ -4,8 +4,9 @@ Glossary
 .. glossary::
 
    reducing function
-      A type of function used for reduction. It may have up to three different
-      arities:
+      A type of function used for reduction.
+
+      It may have up to three different arities:
 
       * The *step* arity accepts 2 arguments, the accumulated result and an
         input. It returns the new accumulated result of the reduction.
@@ -18,8 +19,11 @@ Glossary
         `clojure.org <https://clojure.org/reference/transducers>`_ for more
         information about use with transducers.
 
-      :any:`transducers.multi_arity()` can be used to help create these
-      multi-arity functions.
+      :any:`multi_arity()` can be used to help create these multi-arity
+      functions.
+
+      Reducing functions additionally support a form of early termination via
+      :any:`reduced` values.
 
 
    transducer

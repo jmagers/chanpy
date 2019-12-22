@@ -68,7 +68,15 @@ def multi_arity(*funcs):
 
 
 class reduced:
-    """Wraps `x` in such a way that a reduce will terminate with `x`."""
+    """Wraps `x` in such a way that a reduce will terminate with `x`.
+
+    A :any:`reducing function` can return ``reduced(x)`` to terminate a
+    reduction early with the value `x`.
+
+    If used with a transduce function such as :func:`itransduce`, the
+    reduction will terminate with the result of invoking the completion arity
+    with `x`.
+    """
 
     def __init__(self, x):
         self._value = x
