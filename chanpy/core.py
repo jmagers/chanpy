@@ -43,7 +43,7 @@ class _Undefined:
 def buffer(n):
     """Returns a fixed buffer with a capacity of `n`.
 
-    Puts to channels with this buffer will block if capacity is reached.
+    Puts to channels with this buffer will block if the capacity is reached.
 
     Args:
         n: A positive number.
@@ -52,31 +52,31 @@ def buffer(n):
 
 
 def dropping_buffer(n):
-    """Returns a windowing buffer with a capacity of `n`.
+    """Returns a windowing buffer that drops inputs when capacity is reached.
 
     Puts to channels with this buffer will appear successful after the capacity
-    is reached but will not be added to the buffer.
+    is reached but nothing will be added to the buffer.
 
     Args:
-        n: A positive number.
+        n: A positive number representing the buffer capacity.
     """
     return _bufs.DroppingBuffer(n)
 
 
 def sliding_buffer(n):
-    """Returns a windowing buffer with a capacity of `n`.
+    """Returns a windowing buffer that evicts the oldest element when capacity is reached.
 
     Puts to channels with this buffer will complete successfully after the
     capacity is reached but will evict the oldest element in the buffer.
 
     Args:
-        n: A positive number.
+        n: A positive number representing the buffer capacity.
     """
     return _bufs.SlidingBuffer(n)
 
 
 def is_unblocking_buffer(buf):
-    """Returns True if puts to buffer will never block."""
+    """Returns True if puts to the buffer will never block."""
     return isinstance(buf, _bufs.UnblockingBufferMixin)
 
 
@@ -510,7 +510,7 @@ def pipeline_async(n, to_ch, af, from_ch, *, close=True):
     """Transforms values from `from_ch` to `to_ch` in parallel using an async function.
 
     Values will be gathered from `from_ch` and passed to `af` along with a
-    channel for it's outputs to be placed onto. `af` will be called as
+    channel for its outputs to be placed onto. `af` will be called as
     ``af(val, result_ch)`` and should return immediately, having spawned some
     asynchronous operation that will place zero or more outputs onto
     `result_ch`. Up to `n` of these asynchronous "processes" will be run at

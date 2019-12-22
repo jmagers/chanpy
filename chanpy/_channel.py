@@ -203,10 +203,10 @@ class chan:
             transformation. Must accept the raised exception as a parameter.
             Any non-None return value will be put onto the buffer.
 
-    Raises:
-        TypeError: If `xform` or `ex_handler` is provided when
-            ``buf_or_n=None``.
-
+    See Also:
+        :any:`buffer()`
+        :any:`dropping_buffer()`
+        :any:`sliding_buffer()`
     """
     def __init__(self, buf_or_n=None, xform=None, ex_handler=None):
         if buf_or_n is None:
@@ -259,7 +259,7 @@ class chan:
 
         Returns:
             An awaitable that will evaluate to True if `val` is accepted onto
-            the channel or False if its not.
+            the channel or False if it's not.
 
         Raises:
             RuntimeError: If the calling thread has no running event loop.
@@ -332,7 +332,7 @@ class chan:
                 status of the put operation.
 
         Returns:
-            False if the channel is already closed or True if its not.
+            False if the channel is already closed or True if it's not.
 
         Raises:
             QueueSizeError: If the channel has too many pending put operations.
@@ -387,7 +387,7 @@ class chan:
     def to_iter(self):
         """Returns an iterator over the channel's values.
 
-        Calling ``next()`` on the returned iterator method may block.
+        Calling ``next()`` on the returned iterator may block.
         Does not require an event loop.
         """
         while True:
