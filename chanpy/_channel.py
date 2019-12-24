@@ -8,7 +8,7 @@ from . import _buffers as bufs
 from . import transducers as xf
 
 
-__all__ = ['chan', 'alts', 'b_alts', 'alt', 'b_alt', 'QueueSizeError']
+__all__ = ['chan', 'alt', 'b_alt', 'QueueSizeError']
 
 
 MAX_QUEUE_SIZE = 1024
@@ -629,24 +629,23 @@ def _alts(flag, deliver_fn, ops, priority, default):
                 return default, 'default'
 
 
-def alts(ops, *, priority=False, default=_Undefined):
+def alt(*ops, priority=False, default=_Undefined):
     """
-    alts(opts, *, priority=False, default=Undefined)
+    alt(*ops, priority=False, default=Undefined)
 
     Returns an awaitable representing the first and only channel operation to finish.
 
-    Accepts an iterable of operations that either get from or put to a channel
-    and commits only one of them. If no `default` is provided, then only the
-    first op to finish will be committed. If `default` is provided and none of
-    the `ops` finish immediately, then no operation will be committed and
-    `default` will instead be used to complete the returned awaitable.
+    Accepts a variable number of operations that either get from or put to a
+    channel and commits only one of them. If no `default` is provided, then
+    only the first op to finish will be committed. If `default` is provided and
+    none of the `ops` finish immediately, then no operation will be committed
+    and `default` will instead be used to complete the returned awaitable.
 
     Args:
-        ops: An iterable of operations that either get from or put to a channel.
+        ops: Operations that either get from or put to a channel.
             A get operation is represented as simply a channel to get from.
             A put operation is represented as an iterable of the form
-            ``[channel, val]``, where `val` is an item to put onto the
-            `channel`.
+            ``[channel, val]``, where `val` is an item to put onto `channel`.
         priority: An optional bool. If True, operations will be tried in order.
             If False, operations will be tried in random order.
         default: An optional value to use in case no operation finishes
@@ -666,8 +665,7 @@ def alts(ops, *, priority=False, default=_Undefined):
         RuntimeError: If the calling thread has no running event loop.
 
     See Also:
-        :func:`alt`
-        :func:`b_alts`
+        :func:`b_alt`
     """
     flag = create_flag()
     future = FlagFuture(flag)
@@ -677,34 +675,14 @@ def alts(ops, *, priority=False, default=_Undefined):
     return future
 
 
-def b_alts(ops, *, priority=False, default=_Undefined):
+def b_alt(*ops, priority=False, default=_Undefined):
     """
-    b_alts(opts, *, priority=False, default=Undefined)
+    b_alt(*ops, priority=False, default=Undefined)
 
-    Same as :func:`alts` except it blocks instead of returning an awaitable.
+    Same as :func:`alt` except it blocks instead of returning an awaitable.
 
     Does not require an event loop.
     """
     prom = Promise()
     ret = _alts(create_flag(), prom.deliver, ops, priority, default)
     return prom.deref() if ret is None else ret
-
-
-def alt(*ops, priority=False, default=_Undefined):
-    """
-    alt(*ops, priority=False, default=Undefined)
-
-    A variadic version of :func:`alts`.
-    """
-    return alts(ops, priority=priority, default=default)
-
-
-def b_alt(*ops, priority=False, default=_Undefined):
-    """
-    b_alt(*ops, priority=False, default=Undefined)
-
-    A variadic version of :func:`b_alts`.
-
-    Does not require an event loop.
-    """
-    return b_alts(ops, priority=priority, default=default)

@@ -33,7 +33,7 @@ from multiprocessing import Pool as _ProcPool
 from multiprocessing.dummy import Pool as _DummyPool
 from . import _buffers as _bufs
 from . import transducers as _xf
-from ._channel import chan, alts, b_alts, alt, b_alt, QueueSizeError
+from ._channel import chan, alt, b_alt, QueueSizeError
 
 
 class _Undefined:
@@ -581,7 +581,7 @@ def merge(chs, buf_or_n=None):
     async def proc():
         ports = set(chs)
         while len(ports) > 0:
-            val, ch = await alts(ports)
+            val, ch = await alt(*ports)
             if val is None:
                 ports.remove(ch)
             else:
@@ -596,7 +596,7 @@ def _every(ops):
     """Returns a channel containing a tuple of the operation results.
 
     Args:
-        ops: An iterable of channel operations. See :func:`alts`.
+        ops: An iterable of channel operations. See :func:`alt`.
     """
     ops = tuple(ops)
     lock = _threading.Lock()
@@ -926,7 +926,7 @@ class mix:
         while True:
             data_chs = list(live_chs.union(muted_chs))
             _random.shuffle(data_chs)
-            val, ch = await alts([self._state_ch, *data_chs], priority=True)
+            val, ch = await alt(self._state_ch, *data_chs, priority=True)
             if ch is self._state_ch:
                 live_chs, muted_chs = val['live_chs'], val['muted_chs']
             elif val is None:
