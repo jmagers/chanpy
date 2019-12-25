@@ -26,7 +26,7 @@ class TestThreadCall(unittest.TestCase):
         def thread():
             return 'success'
 
-        ch = c.thread_call(thread)
+        ch = c.thread(thread)
         self.assertEqual(ch.b_get(), 'success')
         self.assertIsNone(ch.b_get())
 
@@ -34,7 +34,7 @@ class TestThreadCall(unittest.TestCase):
         def thread():
             return None
 
-        ch = c.thread_call(thread)
+        ch = c.thread(thread)
         self.assertIsNone(ch.b_get())
 
     def test_executor(self):
@@ -44,7 +44,7 @@ class TestThreadCall(unittest.TestCase):
 
         executor = ThreadPoolExecutor(max_workers=1,
                                       thread_name_prefix='executor')
-        thread_name = c.thread_call(thread, executor).b_get()
+        thread_name = c.thread(thread, executor).b_get()
         self.assertTrue(thread_name.startswith('executor'))
 
 
@@ -153,7 +153,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest = chan(), chan()
-            c.thread_call(lambda: thread(src, dest))
+            c.thread(lambda: thread(src, dest))
             self.assertEqual(await dest.get(), 'success')
             src.close()
 
@@ -173,7 +173,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            c.thread_call(lambda: thread(src, dest1, dest2))
+            c.thread(lambda: thread(src, dest1, dest2))
             await asyncio.sleep(0.1)
             self.assertIsNone(dest2.poll())
             src.close()
@@ -192,7 +192,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2 = chan(), chan(), chan()
-            c.thread_call(lambda: thread(src, dest1, dest2))
+            c.thread(lambda: thread(src, dest1, dest2))
             await asyncio.sleep(0.1)
             self.assertIs(await src.put('dropMe'), True)
             await asyncio.sleep(0.1)
@@ -210,7 +210,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, complete = chan(), chan()
-            c.thread_call(lambda: thread(src, complete))
+            c.thread(lambda: thread(src, complete))
             self.assertIsNone(await complete.get())
 
         asyncio.run(main())
@@ -230,7 +230,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, dest1, dest2, complete = chan(), chan(), chan(), chan()
-            c.thread_call(lambda: thread(src, dest1, dest2, complete))
+            c.thread(lambda: thread(src, dest1, dest2, complete))
             self.assertIsNone(await complete.get())
 
         asyncio.run(main())
@@ -244,7 +244,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src, close_dest, open_dest = chan(), chan(1), chan(1)
-            c.thread_call(lambda: thread(src, close_dest, open_dest))
+            c.thread(lambda: thread(src, close_dest, open_dest))
             await asyncio.sleep(0.1)
             self.assertIs(await close_dest.put('closed'), False)
             self.assertIs(await open_dest.put('not closed'), True)
@@ -260,7 +260,7 @@ class TestMultThread(unittest.TestCase):
 
         async def main():
             src_ch, tap_ch = chan(), chan()
-            c.thread_call(lambda: thread(src_ch, tap_ch))
+            c.thread(lambda: thread(src_ch, tap_ch))
             self.assertIsNone(await tap_ch.get())
 
         asyncio.run(main())

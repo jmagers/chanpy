@@ -67,7 +67,7 @@ class TestAsync(unittest.TestCase):
 
         async def main():
             ch = chan()
-            thread_result_ch = c.thread_call(lambda: getter_thread(ch))
+            thread_result_ch = c.thread(lambda: getter_thread(ch))
             self.assertIs(await ch.put('success'), True)
             self.assertEqual(await thread_result_ch.get(), 'success')
 
@@ -106,7 +106,7 @@ class TestAsync(unittest.TestCase):
             c.go(coro())
 
         async def main():
-            c.thread_call(thread).b_get()
+            c.thread(thread).b_get()
 
         # Assert does NOT warn
         with self.assertRaises(AssertionError):

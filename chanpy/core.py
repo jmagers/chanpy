@@ -21,7 +21,7 @@ Note:
     call these functions but threads without one will be required to register
     one to themselves using :func:`set_loop` prior to doing so. Calling
     :func:`set_loop` will be unnecessary for threads that were created with
-    :func:`thread_call` as those threads will have already been registered.
+    :func:`thread` as those threads will have already been registered.
 """
 
 import asyncio as _asyncio
@@ -141,7 +141,7 @@ def set_loop(loop):
 
     See Also:
         :func:`get_loop`
-        :func:`thread_call`
+        :func:`thread`
     """
     prev_loop = getattr(_local_data, 'loop', None)
     _local_data.loop = loop
@@ -164,7 +164,7 @@ def _in_loop(loop):
         return False
 
 
-def thread_call(f, executor=None):
+def thread(f, executor=None):
     """Registers current loop to a separate thread and then calls `f` from it.
 
     Calls `f` in another thread, returning immediately to the calling thread.
