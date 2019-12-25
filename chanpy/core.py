@@ -206,9 +206,6 @@ def go(coro):
 
     Returns:
         A channel containing the return value of `coro`.
-
-    See Also:
-        :func:`goroutine`
     """
     loop = get_loop()
     ch = chan(1)
@@ -236,7 +233,7 @@ def go(coro):
     return ch
 
 
-def goroutine(coro):
+def _goroutine(coro):
     """A decorator that converts a coroutine to a goroutine.
 
     Goroutines are simply wrapper functions around coroutines (not coroutine
@@ -270,7 +267,7 @@ def timeout(msecs):
     return ch
 
 
-@goroutine
+@_goroutine
 async def _reduce(rf, init, ch):
     result = init
     async for val in ch:
@@ -312,7 +309,7 @@ def reduce(rf, init, ch=_Undefined):
     return _reduce(rf, init, ch)
 
 
-@goroutine
+@_goroutine
 async def _transduce(xform, rf, init, ch):
     xrf = xform(rf)
     ret = await reduce(xrf, init, ch).get()
@@ -360,7 +357,7 @@ def to_list(ch):
     return reduce(_xf.append, ch)
 
 
-@goroutine
+@_goroutine
 async def onto_chan(ch, coll, *, close=True):
     """Asynchronously transfers values from an iterable to a channel.
 
@@ -533,6 +530,9 @@ def pipeline_async(n, to_ch, af, from_ch, *, close=True):
         close: An optional bool. If True, `to_ch` will be closed after transfer
             finishes.
 
+    Returns:
+        A channel that closes after the transfer finishes.
+
     See Also:
         :func:`pipeline`
     """
@@ -612,6 +612,7 @@ def _every(ops):
                 remaining_results -= 1
                 if remaining_results == 0:
                     to_ch.b_put(tuple(results))
+                    to_ch.close()
         return set_result
 
     for i, op in enumerate(ops):
