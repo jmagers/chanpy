@@ -1,3 +1,17 @@
+# Copyright 2019 Jake Magers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Core functions for working with channels.
 
 ChanPy's :class:`channels <chan>` have full support for use with asyncio
@@ -9,7 +23,7 @@ An extremely valuable feature from Clojure's core.async library is the ability
 to cheaply create asynchronous "processes" using go blocks. ChanPy, like
 `aiochan <https://github.com/zh217/aiochan>`_, is able to do something similar
 by leveraging Python's own asyncio library. Channels can easily be used from
-within coroutines which can then be added as tasks to an event loop. Chanpy
+within coroutines which can then be added as tasks to an event loop. ChanPy
 additionally offers ways for these tasks to be added from threads without a
 running event loop.
 
@@ -380,7 +394,7 @@ async def onto_chan(ch, coll, *, close=True):
 
 
 def to_chan(coll):
-    """Returns a channel that emits all values from `coll` and then closes.
+    """Returns a channel that emits all values from an iterable and then closes.
 
     Args:
         coll: An iterable to get values from.
@@ -949,7 +963,7 @@ def split(pred, ch, true_buf=None, false_buf=None):
     `false_ch` contains all the values that return False.
 
     Args:
-        pred: A predicate function.
+        pred: A predicate function, ``pred(value) -> bool``.
         ch: A channel to get values from.
         true_buf: An optional buffer to use with `true_ch`. See :class:`chan`.
         false_buf: An optional buffer to use with `false_ch`.

@@ -1,3 +1,17 @@
+# Copyright 2019 Jake Magers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 import contextlib
 import random
@@ -177,8 +191,8 @@ class chan:
     blocking alternatives for threads which do not wish to use asyncio.
     Channels can even be used with callback based code via :meth:`f_put` and
     :meth:`f_get`. A very valuable feature of channels is that producers and
-    consumers of channels need not be of the same type. For example, a value
-    placed onto a channel with :meth:`put` (asyncio) can be taken by a call to
+    consumers of them need not be of the same type. For example, a value placed
+    onto a channel with :meth:`put` (asyncio) can be taken by a call to
     :meth:`b_get` (blocking) from a separate thread.
 
     A select/alt feature is also available using the :func:`alt` and
