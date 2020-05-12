@@ -20,7 +20,7 @@ import time
 import unittest
 import chanpy as c
 from chanpy import _buffers, chan, transducers as xf
-from chanpy._channel import Promise
+from chanpy._channel import Promise, create_flag, FlagHandler
 
 
 def b_list(ch):
@@ -868,6 +868,50 @@ class AbstractTestUnbufferedAlt(AbstractTestAlt):
         self.assertEqual(c.b_alt(ch), ('success', ch))
         self.assertEqual(ch.b_get(), (True, ch))
 
+    def test_taker_not_removed_from_queue_when_put_handler_inactive(self):
+        ch = self.chan()
+        get_result = None
+
+        def set_result(result):
+            nonlocal get_result
+            get_result = result
+
+        # Enqueue taker
+        ch.f_get(set_result)
+
+        # Put to channel with inactive handler
+        flag = create_flag()
+        flag['is_active'] = False
+        handler = FlagHandler(flag, lambda _: None)
+        # ch._p_put() must return None so alt() knows this operation remains uncommitted
+        self.assertIs(ch._p_put(handler, 'do not commit'), None)
+
+        # Send to taker
+        self.assertIs(ch.offer('success'), True)
+        self.assertEqual(get_result, 'success')
+
+    def test_putter_not_removed_from_queue_when_get_handler_inactive(self):
+        ch = self.chan()
+        put_result = None
+
+        def set_result(result):
+            nonlocal put_result
+            put_result = result
+
+        # Enqueue putter
+        ch.f_put('success', set_result)
+
+        # Get from channel with inactive handler
+        flag = create_flag()
+        flag['is_active'] = False
+        handler = FlagHandler(flag, lambda _: None)
+        # ch._p_get() must return None so alt() knows this operation remains uncommitted
+        self.assertIs(ch._p_get(handler), None)
+
+        # Get from putter
+        self.assertEqual(ch.poll(), 'success')
+        self.assertIs(put_result, True)
+
 
 class AbstractTestBufferedAlt(AbstractTestAlt):
     def test_single_successful_put_on_wait(self):
@@ -1033,6 +1077,33 @@ class AbstractTestBufferedAlt(AbstractTestAlt):
         xformCh.f_put('secondTake')
         xformCh.f_put('dropMe')
         self.assertEqual(b_list(xformCh), ['firstTake', 'secondTake'])
+
+    def test_put_does_not_add_to_buffer_when_handler_inactive(self):
+        ch = self.chan(1)
+
+        # Put to channel with inactive handler
+        flag = create_flag()
+        flag['is_active'] = False
+        handler = FlagHandler(flag, lambda _: None)
+        # ch._p_put() must return None so alt() knows this operation remains uncommitted
+        self.assertIs(ch._p_put(handler, 'do not commit'), None)
+
+        # Prove buffer is empty
+        self.assertIs(ch.poll(), None)
+
+    def test_get_does_not_remove_from_buffer_when_handler_inactive(self):
+        ch = self.chan(1)
+        ch.offer('success')
+
+        # Get from channel with inactive handler
+        flag = create_flag()
+        flag['is_active'] = False
+        handler = FlagHandler(flag, lambda _: None)
+        # ch._p_get() must return None so alt() knows this operation remains uncommitted
+        self.assertIs(ch._p_get(handler), None)
+
+        # Prove value still in buffer
+        self.assertIs(ch.poll(), 'success')
 
 
 class TestUnbufferedAltChan(unittest.TestCase, AbstractTestUnbufferedAlt):

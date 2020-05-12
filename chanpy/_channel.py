@@ -447,7 +447,7 @@ class chan:
             if self._buf is not None and not self._buf.is_full():
                 with handler:
                     if not handler.is_active:
-                        return False
+                        return None
                     handler.commit()
 
                 self._buf_put(val)
@@ -457,9 +457,12 @@ class chan:
             # Attempt to transfer val to a taker
             if self._buf is None:
                 while len(self._takes) > 0:
-                    taker = self._takes.popleft()
+                    taker = self._takes[0]
                     with acquire_handlers(handler, taker):
-                        if handler.is_active and taker.is_active:
+                        if not handler.is_active:
+                            return None
+                        self._takes.popleft()
+                        if taker.is_active:
                             handler.commit()
                             taker.commit()(val)
                             return True,
@@ -505,7 +508,7 @@ class chan:
             if self._buf is not None and len(self._buf) > 0:
                 with handler:
                     if not handler.is_active:
-                        return None,
+                        return None
                     handler.commit()
 
                 ret = self._buf.get()
@@ -524,9 +527,12 @@ class chan:
             # Attempt to take val from a putter
             if self._buf is None:
                 while len(self._puts) > 0:
-                    putter, val = self._puts.popleft()
+                    putter, val = self._puts[0]
                     with acquire_handlers(handler, putter):
-                        if handler.is_active and putter.is_active:
+                        if not handler.is_active:
+                            return None
+                        self._puts.popleft()
+                        if putter.is_active:
                             handler.commit()
                             putter.commit()(True)
                             return val,
@@ -550,6 +556,7 @@ class chan:
             if handler.is_active:
                 handler.commit()
                 return val,
+            return None
 
     def _buf_put(self, val):
         if xf.is_reduced(self._buf_rf(None, val)):

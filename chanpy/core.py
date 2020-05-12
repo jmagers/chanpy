@@ -229,7 +229,7 @@ def go(coro):
         # separately or else a 'coroutine never awaited' RuntimeWarning could
         # get raised when call_soon_threadsafe is used
 
-        coro_task = _asyncio.create_task(coro)
+        coro_task = loop.create_task(coro)
 
         async def put_result_to_ch():
             ret = await coro_task
