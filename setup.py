@@ -16,7 +16,7 @@ import setuptools
 
 setuptools.setup(
     name='chanpy',
-    version='0.0.1',
+    version='0.0.2',
     author='Jake Magers',
     author_email='jmagers12@gmail.com',
     description='A CSP library based on Clojure core.async',
